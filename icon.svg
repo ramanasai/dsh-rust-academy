@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Rust Academy crab">
+  <g fill="none" stroke="#7a2a1b" stroke-width="3" stroke-linecap="round">
+    <path d="M20 46 L12 54"/>
+    <path d="M27 49 L23 58"/>
+    <path d="M44 46 L52 54"/>
+    <path d="M37 49 L41 58"/>
+    <path d="M25 28 L24 24"/>
+    <path d="M39 28 L40 24"/>
+  </g>
+  <g fill="#ce422b" stroke="#7a2a1b" stroke-width="3" stroke-linejoin="round">
+    <path d="M15 30c-4-1-7-5-6-8 1-4 6-4 8-2 1 2 1 4 0 5 3 0 4 2 4 4z"/>
+    <path d="M49 30c4-1 7-5 6-8-1-4-6-4-8-2-1 2-1 4 0 5-3 0-4 2-4 4z"/>
+    <ellipse cx="32" cy="38" rx="17" ry="12"/>
+  </g>
+  <circle cx="24" cy="21" r="5.5" fill="#ffffff" stroke="#7a2a1b" stroke-width="3"/>
+  <circle cx="40" cy="21" r="5.5" fill="#ffffff" stroke="#7a2a1b" stroke-width="3"/>
+  <circle cx="24" cy="22" r="2.2" fill="#2b1a16"/>
+  <circle cx="40" cy="22" r="2.2" fill="#2b1a16"/>
+  <path d="M28 38 q4 3 8 0" fill="none" stroke="#7a2a1b" stroke-width="3" stroke-linecap="round"/>
+</svg>

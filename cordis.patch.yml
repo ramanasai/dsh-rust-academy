@@ -1,0 +1,4 @@
+- insert:
+    - id: rust-academy
+      name: '@local/rust-academy'
+      config: {}
