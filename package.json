@@ -3,6 +3,19 @@
   "version": "1.0.0",
   "private": true,
   "description": "A Rust learning studio in the Harness sidebar: 20 lessons, exercises, and a syntax cheatsheet.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ramanasai/dsh-rust-academy.git"
+  },
+  "homepage": "https://github.com/ramanasai/dsh-rust-academy#readme",
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "rust",
+    "learning"
+  ],
   "type": "module",
   "exports": {
     ".": "./index.js",
