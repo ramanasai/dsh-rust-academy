@@ -1307,7 +1307,7 @@ export default {
         },
         {
           "title": "The Tail at Scale (Dean & Barroso, CACM 2013)",
-          "url": "https://cacm.acm.org/research/the-tail-at-scale/",
+          "url": "https://research.google/pubs/the-tail-at-scale/",
           "kind": "paper"
         }
       ]
@@ -2324,7 +2324,7 @@ export default {
             "Running a concurrent test a million times samples a few interleavings out of an astronomical space, and the bug lives in the one you did not hit. loom replaces the scheduler and the atomics, then systematically explores the executions allowed by the C11 memory model, using state reduction to avoid re-running equivalent ones. When it finds a failing interleaving it can replay it deterministically.",
             "That determinism is the real feature. A stress-test failure gives you a stack trace and no idea which ordering caused it; a loom failure gives you an execution you can replay with a checkpoint file, then step through with logging enabled."
           ],
-          "code": "// src/sync.rs — one module that picks the implementation.\n#[cfg(loom)]\npub(crate) use loom::sync::atomic::{AtomicBool, AtomicUsize, Ordering};\n#[cfg(not(loom))]\npub(crate) use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};\n\n// tests/loom_handoff.rs\n#![cfg(loom)]\n\nuse loom::sync::atomic::{AtomicBool, AtomicUsize, Ordering};\nuse loom::sync::Arc;\nuse loom::thread;\n\n#[test]\nfn a_reader_that_sees_ready_also_sees_the_value() {\n    loom::model(|| {\n        let value = Arc::new(AtomicUsize::new(0));\n        let ready = Arc::new(AtomicBool::new(false));\n\n        let writer = {\n            let value = value.clone();\n            let ready = ready.clone();\n            thread::spawn(move || {\n                value.store(42, Ordering::Release);\n                ready.store(true, Ordering::Release);\n            })\n        };\n\n        if ready.load(Ordering::Acquire) {\n            assert_eq!(value.load(Ordering::Acquire), 42);\n        }\n\n        writer.join().unwrap();\n    });\n}",
+          "code": "// src/sync.rs — one module that picks the implementation.\n#[cfg(loom)]\npub(crate) use loom::sync::atomic::{AtomicBool, AtomicUsize, Ordering};\n#[cfg(not(loom))]\npub(crate) use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};\n\n// tests/loom_handoff.rs — as an integration-test crate it starts with\n// #![cfg(loom)], so the file only exists in a loom build.\nuse loom::sync::atomic::{AtomicBool, AtomicUsize, Ordering};\nuse loom::sync::Arc;\nuse loom::thread;\n\n#[test]\nfn a_reader_that_sees_ready_also_sees_the_value() {\n    loom::model(|| {\n        let value = Arc::new(AtomicUsize::new(0));\n        let ready = Arc::new(AtomicBool::new(false));\n\n        let writer = {\n            let value = value.clone();\n            let ready = ready.clone();\n            thread::spawn(move || {\n                value.store(42, Ordering::Release);\n                ready.store(true, Ordering::Release);\n            })\n        };\n\n        if ready.load(Ordering::Acquire) {\n            assert_eq!(value.load(Ordering::Acquire), 42);\n        }\n\n        writer.join().unwrap();\n    });\n}",
           "tip": "Swap both Release/Acquire pairs for Relaxed and re-run: the ordering guarantee is gone, and that is exactly the change loom exists to catch."
         },
         {

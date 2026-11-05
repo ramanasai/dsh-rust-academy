@@ -1044,6 +1044,89 @@ export const CHEATSHEET = [
         "code": "cargo build --timings\n# writes target/cargo-timings/cargo-timing.html"
       }
     ]
+  },
+  {
+    "title": "Interview prep",
+    "items": [
+      {
+        "name": "ownership: move, borrow, mutate",
+        "code": "fn takes(v: Vec<u8>) {}            // moved in, dropped here\nfn borrow(v: &Vec<u8>) {}          // caller keeps ownership\nfn borrow_mut(v: &mut Vec<u8>) {}  // exclusive for the call\n\nlet mut v = vec![1, 2, 3];\nborrow(&v);\nborrow_mut(&mut v);\ntakes(v);                          // v is gone after this line: E0382"
+      },
+      {
+        "name": "lifetimes: what the return borrows",
+        "code": "struct Parser { input: String }\n\nimpl Parser {\n    // The returned &str borrows self, not a temporary from split().\n    fn first_word(&self) -> &str {\n        self.input.split_whitespace().next().unwrap_or(\"\")\n    }\n}\n\n// Returning a slice of a local String instead is E0515."
+      },
+      {
+        "name": "complexity cheat lines",
+        "code": "// Vec::push             amortized O(1)    | Vec::insert          O(n)\n// HashMap::get          O(1) expected      | BTreeMap::get        O(log n)\n// BinaryHeap::push      O(log n)           | sort_unstable        O(n log n)\n// VecDeque::pop_front   O(1)               | Vec::remove(0)        O(n)\n// Arc::clone            O(1) atomic        | Mutex::lock          O(1) uncontended"
+      },
+      {
+        "name": "system design: rate limiter at 50k rps",
+        "code": "// - one Redis round trip on the hot path; Lua makes INCR + PEXPIRE atomic\n// - key = tenant:route; limit and burst live in config, not in code\n// - local token bucket absorbs Redis latency for low-risk routes\n// - decide fail-open vs fail-closed per route, and record the choice\n// - measure 429 rate, added p99, and Redis error rate per tenant"
+      },
+      {
+        "name": "concurrency: Send vs Sync",
+        "code": "fn assert_send<T: Send>() {}\nfn assert_sync<T: Sync>() {}\n\nassert_send::<std::sync::Arc<std::sync::Mutex<Vec<u8>>>>();\nassert_sync::<std::sync::Arc<std::sync::Mutex<Vec<u8>>>>();\n\n// Rc<T>: neither. Cell<T>: Send, not Sync. Mutex<T>: Sync when T: Send."
+      },
+      {
+        "name": "debugging: p99 regression script",
+        "code": "// p99 up, throughput flat, one core pegged:\n// 1. per-core CPU and run-queue depth, not total CPU\n// 2. task poll/busy time before reading any source\n// 3. bisect by reverting one change at a time\n// 4. add a CI p99 budget so the class of bug fails a gate next time"
+      }
+    ]
+  },
+  {
+    "title": "Engineering craft",
+    "items": [
+      {
+        "name": "code review checklist",
+        "code": "// [blocking] invariant: what breaks if this is wrong? is it in the type?\n// [blocking] authority: who can construct it? is the field private?\n// [blocking] failure: what does the caller do with every error variant?\n// [blocking] rollback: can this deploy be undone without data loss?\n// [question]  why this cache, key, or timeout, and what invalidates it?\n// [nit]       naming and formatting: rustfmt and clippy already review it"
+      },
+      {
+        "name": "ADR skeleton",
+        "code": "# 0012 Use an outbox for cross-context events\n\n## Status\nProposed 2026-11-05\n\n## Context\nOrder commits must publish an event even when the broker is down.\n\n## Decision\nWrite the event to an outbox row in the same transaction; a relay publishes it.\n\n## Alternatives\n- Publish inline: rejected, broker downtime fails checkout.\n- CDC only: rejected, no schema-level ordering guarantee.\n\n## Consequences\n- Good: no dual-write window.\n- Bad: one more table and a relay to supervise.\n\n## Revisit if\nThe broker exposes a transactional publish API we can adopt."
+      },
+      {
+        "name": "incident timeline template",
+        "code": "// 14:02 alert: checkout p99 > 2s, burn rate 14x over 5m\n// 14:04 incident commander named; status page updated\n// 14:09 hypothesis: connection pool exhausted after the 14:00 deploy\n// 14:16 mitigation: roll back the deploy; pool saturation clears\n// 14:31 error rate back under SLO; keep watching for 30m\n// 15:10 postmortem owner named; action items filed with dates"
+      },
+      {
+        "name": "estimation heuristics",
+        "code": "// 1 engineer-day = 4 focused hours after meetings and review\n// double the estimate for work that crosses a service boundary\n// add one week per new external dependency, not per API call\n// give a range (best / likely / worst), never a single date\n// a migration touching two datastores is two projects, not one\n// unknown unknowns: add 30% and name the assumption in the plan"
+      },
+      {
+        "name": "review comment that can be acted on",
+        "code": "// [blocking] withdraw returns bool, so the caller cannot tell\n// \"insufficient funds\" from \"limit exceeded\". Return\n// Result<i64, WithdrawError> with one variant per reason, so the\n// match at the call site proves the failure was handled."
+      }
+    ]
+  },
+  {
+    "title": "Projects",
+    "items": [
+      {
+        "name": "project skeleton commands",
+        "code": "cargo new --lib crates/core\ncargo new --lib crates/api\ncargo new --bin apps/server\ncargo add --package api axum tokio --features tokio/full\ncargo test --workspace\ncargo clippy --workspace --all-targets -- -D warnings"
+      },
+      {
+        "name": "acceptance criteria template",
+        "code": "- [ ] Given <input>, when <action>, then <observable result>\n- [ ] Failure path returns the documented error and status code\n- [ ] p99 stays under the budget at 2x expected peak\n- [ ] No new secret, unbounded queue, or blocking call on the runtime\n- [ ] Rollback is one command and does not lose committed data"
+      },
+      {
+        "name": "benchmark harness (criterion)",
+        "code": "use criterion::{black_box, criterion_group, criterion_main, Criterion};\n\nfn bench_parse(c: &mut Criterion) {\n    let input = std::fs::read_to_string(\"fixtures/sample.json\").unwrap();\n    c.bench_function(\"parse/sample\", |b| b.iter(|| parse(black_box(&input))));\n}\n\ncriterion_group!(benches, bench_parse);\ncriterion_main!(benches);"
+      },
+      {
+        "name": "deployment checklist",
+        "code": "# build once, deploy the same digest everywhere\ndocker build --platform linux/amd64 -t api:$GIT_SHA .\ndocker push registry.example.com/api:$GIT_SHA\n\n# canary 5% for 10m, then 50%, then 100%\nkubectl set image deploy/api api=registry.example.com/api:$GIT_SHA\nkubectl rollout status deploy/api --timeout=5m\nkubectl rollout undo deploy/api"
+      },
+      {
+        "name": "load test with a budget",
+        "code": "oha -z 60s -c 50 --latency http://127.0.0.1:8080/health\n\n# pass only when p99 < 300 ms and the error rate is < 0.1%\n# compare against the previous release, not against zero load\n# keep the command in the repo so the budget is reproducible"
+      },
+      {
+        "name": "CI acceptance gate",
+        "code": "# .github/workflows/ci.yml (excerpt)\n- run: cargo fmt --check\n- run: cargo clippy --workspace --all-targets -- -D warnings\n- run: cargo test --workspace --locked\n- run: cargo deny check advisories bans licenses sources\n- run: cargo bench --no-run   # benches must at least compile"
+      }
+    ]
   }
 ];
 

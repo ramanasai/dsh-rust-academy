@@ -2,7 +2,7 @@
 
 - chapters audited: **640**
 - clean: **640** · with issues: **0**
-- unique URLs checked: **1469** · unique crates checked: **358**
+- unique URLs checked: **1468** · unique crates checked: **358**
 - chapters with broken links: **0**
 - moved links: **9** · unknown crates: **0**
 
@@ -13,7 +13,6 @@
 - https://dl.acm.org/doi/10.1145/564585.564601
 - https://dl.acm.org/doi/10.1145/1294261.1294281
 - https://dl.acm.org/doi/10.1145/78969.78972
-- https://dl.acm.org/doi/10.14778/2732232.2732237
 - https://dl.acm.org/doi/10.1145/258533.258660
 - https://dl.acm.org/doi/10.1145/279227.279229
 - https://dl.acm.org/doi/10.1145/359545.359563
@@ -21,8 +20,6 @@
 - https://dl.acm.org/doi/10.1145/41840.41841
 - https://dl.acm.org/doi/10.1145/38713.38742
 - https://dl.acm.org/doi/10.1145/351240.351266
-- https://cacm.acm.org/research/the-tail-at-scale/
-- https://dl.acm.org/doi/10.1145/3062341.3062363
 
 ## Moved links
 - https://kafka.apache.org/intro -> https://kafka.apache.org/intro/

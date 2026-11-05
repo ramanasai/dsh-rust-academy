@@ -293,7 +293,7 @@ export default {
         },
         {
           "title": "Highly available transactions: virtues and limitations",
-          "url": "https://dl.acm.org/doi/10.14778/2732232.2732237",
+          "url": "https://arxiv.org/abs/1302.0309",
           "kind": "paper"
         },
         {
@@ -2096,7 +2096,7 @@ export default {
         },
         {
           "title": "Highly available transactions: what isolation costs",
-          "url": "https://dl.acm.org/doi/10.14778/2732232.2732237",
+          "url": "https://arxiv.org/abs/1302.0309",
           "kind": "paper"
         },
         {
