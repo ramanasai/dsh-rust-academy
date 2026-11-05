@@ -21,6 +21,10 @@ window.__ModuleLoader__.load({
     const PROGRESS_KEY = 'dsh.rust-academy.progress.v1';
     const LAST_KEY = 'dsh.rust-academy.last.v1';
     const QUIZ_KEY = 'dsh.rust-academy.quiz.v1';
+    const PLAYGROUND_KEY = 'dsh.rust-academy.playground.v1';
+    const PLAYGROUND_URL = 'https://play.rust-lang.org/execute';
+    const PLAYGROUND_DEFAULT = 'fn main() {\n    println!("Hello from the Rust Playground!");\n}\n';
+    let playgroundAbort = null;
 
     // ------------------------------------------------------------------ i18n
 
@@ -31,6 +35,23 @@ window.__ModuleLoader__.load({
       'tab.course': 'Course',
       'tab.blueprints': 'Blueprints',
       'tab.cheatsheet': 'Cheatsheet',
+      'tab.playground': 'Playground',
+      'playground.title': 'Rust Playground',
+      'playground.privacy': 'Runs in the official play.rust-lang.org sandbox — code is sent there, needs network.',
+      'playground.run': 'Run',
+      'playground.running': 'Running in the sandbox…',
+      'playground.clear': 'Clear',
+      'playground.loadStarter': 'Load chapter starter',
+      'playground.loadSolution': 'Load chapter solution',
+      'playground.edition': 'Edition',
+      'playground.tests': 'Run tests',
+      'playground.stdout': 'stdout',
+      'playground.stderr': 'stderr',
+      'playground.success': 'Success',
+      'playground.failure': 'Failed',
+      'playground.networkError': 'Could not reach the Rust Playground. Check your connection or open play.rust-lang.org directly.',
+      'playground.empty': 'Write code and press Run (or Ctrl/Cmd+Enter) to execute it in the sandbox.',
+      'playground.hint': 'Ctrl/Cmd+Enter to run',
       'search.placeholder': 'Search lessons, crates, patterns…',
       'search.results': '{n} result(s)',
       'search.empty': 'No lessons match that search.',
@@ -638,6 +659,137 @@ window.__ModuleLoader__.load({
       );
     }
 
+    function Playground({ lesson }) {
+      const saved = readJson(PLAYGROUND_KEY, {});
+      const [code, setCode] = useState(() => typeof saved.code === 'string' ? saved.code : PLAYGROUND_DEFAULT);
+      const [edition, setEdition] = useState(typeof saved.edition === 'string' ? saved.edition : '2021');
+      const [tests, setTests] = useState(!!saved.tests);
+      const [running, setRunning] = useState(false);
+      const [result, setResult] = useState(null);
+      const [error, setError] = useState('');
+      const [elapsed, setElapsed] = useState(0);
+
+      useEffect(() => {
+        writeJson(PLAYGROUND_KEY, { code, edition, tests });
+      }, [code, edition, tests]);
+
+      useEffect(() => () => {
+        if (playgroundAbort) playgroundAbort.abort();
+      }, []);
+
+      function run() {
+        if (running) return;
+        const controller = new AbortController();
+        playgroundAbort = controller;
+        const started = Date.now();
+        setRunning(true);
+        setError('');
+        setResult(null);
+        fetch(PLAYGROUND_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ channel: 'stable', mode: 'debug', edition, crateType: 'bin', tests, code }),
+          signal: controller.signal,
+        })
+          .then((response) => {
+            if (!response.ok) throw new Error('HTTP ' + response.status);
+            return response.json();
+          })
+          .then((payload) => {
+            setResult(payload && typeof payload === 'object' ? payload : { success: false, stdout: '', stderr: 'Unexpected response' });
+            setElapsed(Date.now() - started);
+            setRunning(false);
+          })
+          .catch((err) => {
+            if (err && err.name === 'AbortError') { setRunning(false); return; }
+            setError(t('playground.networkError'));
+            setRunning(false);
+          });
+      }
+
+      function loadExercise(part) {
+        if (!lesson || !lesson.exercise) return;
+        setCode(lesson.exercise[part] || '');
+      }
+
+      return h('div', { className: 'ra-play' },
+        h('div', { className: 'ra-play-toolbar' },
+          h('div', { className: 'ra-play-heading' },
+            h('span', { className: 'ra-play-title' }, t('playground.title')),
+            h('span', { className: 'ra-play-note' }, t('playground.privacy'))
+          ),
+          h('div', { className: 'ra-play-controls' },
+            h('label', { className: 'ra-play-field' }, t('playground.edition'),
+              h('select', {
+                className: 'ra-select', value: edition, 'aria-label': t('playground.edition'),
+                onChange: (event) => setEdition(event.target.value),
+              },
+                ['2015', '2018', '2021', '2024'].map((value) => h('option', { key: value, value }, value))
+              )
+            ),
+            h('label', { className: 'ra-play-check' },
+              h('input', {
+                type: 'checkbox', checked: tests,
+                onChange: (event) => setTests(event.target.checked),
+              }), t('playground.tests')),
+            h('button', {
+              type: 'button', className: 'ra-ghost', disabled: !lesson || !lesson.exercise,
+              onClick: () => loadExercise('starter'),
+            }, t('playground.loadStarter')),
+            h('button', {
+              type: 'button', className: 'ra-ghost', disabled: !lesson || !lesson.exercise,
+              onClick: () => loadExercise('solution'),
+            }, t('playground.loadSolution')),
+            h('button', { type: 'button', className: 'ra-ghost', onClick: () => setCode('') }, t('playground.clear')),
+            h('button', {
+              type: 'button', className: 'ra-primary', disabled: running,
+              title: t('playground.hint'), onClick: run,
+            }, running ? t('playground.running') : t('playground.run'))
+          )
+        ),
+        h('div', { className: 'ra-play-body' },
+          h('div', { className: 'ra-play-editor' },
+            h('textarea', {
+              className: 'ra-play-code',
+              value: code,
+              spellCheck: false,
+              'aria-label': t('playground.title'),
+              onChange: (event) => setCode(event.target.value),
+              onKeyDown: (event) => {
+                if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                  event.preventDefault();
+                  run();
+                }
+              },
+            })
+          ),
+          h('div', { className: 'ra-play-output' },
+            error ? h('div', { className: 'ra-play-error' }, error) : null,
+            result
+              ? h('div', { className: 'ra-play-result' },
+                  h('div', { className: 'ra-play-status' },
+                    h('span', { className: 'ra-badge ' + (result.success ? 'ra-badge-ok' : 'ra-badge-bad') },
+                      result.success ? t('playground.success') : t('playground.failure')),
+                    h('span', { className: 'ra-play-meta' },
+                      (result.exitDetail || '') + (elapsed ? ' · ' + elapsed + ' ms' : ''))
+                  ),
+                  h('div', { className: 'ra-play-section' },
+                    h('h4', null, t('playground.stdout')),
+                    h('pre', { className: 'ra-play-pre' }, result.stdout || '')
+                  ),
+                  result.stderr
+                    ? h('div', { className: 'ra-play-section' },
+                        h('h4', null, t('playground.stderr')),
+                        h('pre', { className: 'ra-play-pre ra-play-stderr' }, result.stderr))
+                    : null
+                )
+              : h('div', { className: 'ra-play-empty' },
+                  running ? t('playground.running') : t('playground.empty'))
+          )
+        )
+      );
+    }
+
     function Panel() {
       useRevision();
 
@@ -749,6 +901,7 @@ window.__ModuleLoader__.load({
           h(TabButton, { active: tab === 'course', onClick: () => setTab('course') }, t('tab.course')),
           h(TabButton, { active: tab === 'blueprints', onClick: () => setTab('blueprints') }, t('tab.blueprints')),
           h(TabButton, { active: tab === 'cheatsheet', onClick: () => setTab('cheatsheet') }, t('tab.cheatsheet')),
+          h(TabButton, { active: tab === 'playground', onClick: () => setTab('playground') }, t('tab.playground')),
           h('div', { className: 'ra-tabs-spacer' }),
           tab === 'course'
             ? h('div', { className: 'ra-tools' },
@@ -807,7 +960,9 @@ window.__ModuleLoader__.load({
             )
           : tab === 'blueprints'
             ? h(Blueprints, { onOpenLesson: openLesson })
-            : h(Cheatsheet, { onCopy: copy }),
+            : tab === 'cheatsheet'
+              ? h(Cheatsheet, { onCopy: copy })
+              : h(Playground, { lesson }),
         toast ? h('div', { className: 'ra-toast', role: 'status' }, toast) : null
       );
     }
@@ -978,6 +1133,32 @@ window.__ModuleLoader__.load({
 .ra-quickbytes{margin:18px 0;padding:14px 16px;border:1px dashed var(--dsw-alias-border-l2);border-radius:11px;background:var(--dsw-alias-bg-layer-1);}
 .ra-quickbytes h3{margin:0 0 8px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--dsw-alias-state-warn-primary);}
 .ra-quickbyte{display:flex;gap:8px;margin:4px 0;font-size:12.5px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--dsw-alias-label-primary);}
+.ra-play{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:12px;padding:18px 22px 24px;}
+.ra-play-toolbar{display:flex;flex-direction:column;gap:8px;}
+.ra-play-heading{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;}
+.ra-play-title{font-size:15px;font-weight:650;letter-spacing:-.01em;}
+.ra-play-note{font-size:11px;color:var(--dsw-alias-label-secondary);}
+.ra-play-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.ra-play-field,.ra-play-check{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--dsw-alias-label-secondary);}
+.ra-play-body{flex:1 1 auto;min-height:0;display:flex;gap:12px;}
+.ra-play-editor{flex:1 1 55%;min-width:0;display:flex;}
+.ra-play-code{flex:1 1 auto;width:100%;min-height:220px;resize:none;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:12px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;padding:12px 14px;tab-size:4;}
+.ra-play-code:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px;}
+.ra-play-output{flex:1 1 45%;min-width:0;overflow:auto;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-layer-1);padding:12px 14px;}
+.ra-play-empty{font-size:12.5px;color:var(--dsw-alias-label-secondary);}
+.ra-play-error{margin-bottom:10px;padding:9px 11px;border:1px solid var(--dsw-alias-state-error-primary);border-radius:8px;color:var(--dsw-alias-state-error-primary);font-size:12.5px;}
+.ra-play-status{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;}
+.ra-badge-ok{color:var(--dsw-alias-state-success-primary);border:1px solid var(--dsw-alias-state-success-primary);background:var(--dsw-alias-bg-layer-2);}
+.ra-badge-bad{color:var(--dsw-alias-state-error-primary);border:1px solid var(--dsw-alias-state-error-primary);background:var(--dsw-alias-bg-layer-2);}
+.ra-play-meta{font-size:11px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;}
+.ra-play-section h4{margin:0 0 4px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--dsw-alias-label-secondary);}
+.ra-play-pre{margin:0 0 10px;overflow-x:auto;font:11.5px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--dsw-alias-label-primary);white-space:pre-wrap;word-break:break-word;}
+.ra-play-stderr{color:var(--dsw-alias-label-secondary);}
+@media (max-width:900px){
+  .ra-play-body{flex-direction:column;}
+  .ra-play-code{min-height:180px;}
+  .ra-play-output{min-height:160px;}
+}
 .ra-toast{position:fixed;left:50%;bottom:30px;transform:translateX(-50%);z-index:80;background:var(--dsw-alias-bg-overlay);color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l2);border-radius:999px;padding:7px 15px;font-size:12px;}
 @media (max-width:900px){
   .ra-nav{width:238px;flex-basis:238px;}

@@ -24,6 +24,10 @@ verified links to docs, GitHub repos, papers and conference talks.
 - **12 reference blueprints.** How the pieces fit together: request flow, components,
   production checklist and related chapters.
 - **23-group cheatsheet.** 130 copy-ready snippets for the whole stack.
+- **Playground tab.** Write Rust in the panel and run it in the official
+  `play.rust-lang.org` sandbox (remote execution, needs network; nothing runs
+  on your machine). Ctrl/Cmd+Enter runs; load the current chapter's starter or
+  solution in one click.
 - **Progress, search and track jump.** Per-track and overall completion, full-text
   search over chapters/crates/patterns, and a jump-to-track selector.
 
