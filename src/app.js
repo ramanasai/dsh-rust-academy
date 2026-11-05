@@ -1285,7 +1285,7 @@ window.__ModuleLoader__.load({
             h(CrabMark, { size: 30, filled: true }),
             h('div', null,
               h('div', { className: 'ra-title' }, t('panel.title')),
-              h('div', { className: 'ra-sub' }, t('panel.stats', { tracks: TRACKS.length, lessons: TOTAL }))
+              h('div', { className: 'ra-sub' }, t('panel.stats', { tracks: TRACKS.length, lessons: TOTAL }) + ' · v' + PLUGIN_VERSION)
             )
           ),
           h('div', { className: 'ra-header-spacer' }),

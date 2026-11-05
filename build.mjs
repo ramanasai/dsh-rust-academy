@@ -16,6 +16,7 @@ const here = path.dirname(new URL(import.meta.url).pathname);
 const dataDir = path.join(here, 'src', 'data');
 const FALLBACK_PREFIX = { foundations: 'l', web: 'w', data: 'd', services: 's', processes: 'p', production: 'g' };
 const stamp = Date.now();
+const pkg = JSON.parse(fs.readFileSync(path.join(here, 'package.json'), 'utf8'));
 
 const indexFile = path.join(dataDir, 'index.mjs');
 const { TRACK_FILES } = await import(pathToFileURL(indexFile).href + '?v=' + stamp);
@@ -100,6 +101,7 @@ const dataSource = [
   'const CHEATSHEET = ' + JSON.stringify(CHEATSHEET) + ';',
   'const BLUEPRINTS = ' + JSON.stringify(BLUEPRINTS) + ';',
   'const TOTAL = LESSONS.length;',
+  'const PLUGIN_VERSION = ' + JSON.stringify(pkg.version) + ';',
 ].join('\n    ');
 
 const template = fs.readFileSync(path.join(here, 'src', 'app.js'), 'utf8');
