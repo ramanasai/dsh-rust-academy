@@ -36,6 +36,9 @@ window.__ModuleLoader__.load({
       'panel.title': 'Rust Academy',
       'panel.tagline': 'Production Rust — web, data, services, processes, platform',
       'panel.stats': '{tracks} tracks · {lessons} lessons',
+      'loading.data': 'Loading the course…',
+      'loading.error': 'Could not load course data.',
+      'loading.retry': 'Retry',
       'tab.course': 'Course',
       'tab.blueprints': 'Blueprints',
       'tab.cheatsheet': 'Cheatsheet',
@@ -201,8 +204,50 @@ window.__ModuleLoader__.load({
 
     /*@DATA@*/
 
-    const LESSON_BY_ID = {};
-    LESSONS.forEach((lesson) => { LESSON_BY_ID[lesson.id] = lesson; });
+    let TRACKS = [];
+    let LESSONS = [];
+    let CHEATSHEET = [];
+    let BLUEPRINTS = [];
+    let TOTAL = 0;
+    let LESSON_BY_ID = {};
+    let courseDataReady = false;
+    let courseDataLoading = false;
+    let courseDataError = '';
+    const courseDataListeners = new Set();
+
+    function notifyCourseData() {
+      for (const listener of courseDataListeners) {
+        try { listener(); } catch (error) { /* listener is local */ }
+      }
+    }
+
+    function loadCourseData() {
+      if (courseDataReady || courseDataLoading) return;
+      courseDataLoading = true;
+      courseDataError = '';
+      fetch('/rust-academy/data.json', { credentials: 'same-origin', cache: 'no-store' })
+        .then((response) => {
+          if (!response.ok) throw new Error('HTTP ' + response.status);
+          return response.json();
+        })
+        .then((payload) => {
+          TRACKS = Array.isArray(payload.tracks) ? payload.tracks : [];
+          LESSONS = Array.isArray(payload.lessons) ? payload.lessons : [];
+          CHEATSHEET = Array.isArray(payload.cheatsheet) ? payload.cheatsheet : [];
+          BLUEPRINTS = Array.isArray(payload.blueprints) ? payload.blueprints : [];
+          TOTAL = LESSONS.length;
+          LESSON_BY_ID = {};
+          LESSONS.forEach((lesson) => { LESSON_BY_ID[lesson.id] = lesson; });
+          courseDataReady = true;
+          courseDataLoading = false;
+          notifyCourseData();
+        })
+        .catch((error) => {
+          courseDataError = error && error.message ? error.message : 'failed to load';
+          courseDataLoading = false;
+          notifyCourseData();
+        });
+    }
 
     // -------------------------------------------------------------- rendering
 
@@ -1168,7 +1213,7 @@ window.__ModuleLoader__.load({
       const [query, setQuery] = useState('');
       const [selectedId, setSelectedId] = useState(() => {
         const last = readJson(LAST_KEY, null);
-        return last && last.id && LESSON_BY_ID[last.id] ? last.id : LESSONS[0].id;
+        return last && last.id ? last.id : null;
       });
       const [done, setDone] = useState(() => readJson(PROGRESS_KEY, {}));
       const [toast, setToast] = useState('');
@@ -1185,14 +1230,32 @@ window.__ModuleLoader__.load({
         return () => clearTimeout(id);
       }, [toast]);
 
-      const lesson = LESSON_BY_ID[selectedId] || LESSONS[0];
-      const doneCount = LESSONS.filter((item) => done[item.id]).length;
-      const percent = TOTAL === 0 ? 0 : Math.round((doneCount / TOTAL) * 100);
-      const previous = lesson.n > 1 ? LESSONS[lesson.n - 2] : null;
-      const following = lesson.n < TOTAL ? LESSONS[lesson.n] : null;
+      const [dataTick, setDataTick] = useState(0);
 
       useEffect(() => {
-        if (tab !== 'course') return undefined;
+        const listener = () => setDataTick((value) => value + 1);
+        courseDataListeners.add(listener);
+        if (!courseDataReady) loadCourseData();
+        return () => { courseDataListeners.delete(listener); };
+      }, []);
+
+      useEffect(() => {
+        if (!courseDataReady) return;
+        if (!selectedId || !LESSON_BY_ID[selectedId]) {
+          const last = readJson(LAST_KEY, null);
+          const nextId = last && LESSON_BY_ID[last.id] ? last.id : (LESSONS[0] ? LESSONS[0].id : null);
+          if (nextId) setSelectedId(nextId);
+        }
+      }, [dataTick]);
+
+      const lesson = courseDataReady ? (LESSON_BY_ID[selectedId] || LESSONS[0] || null) : null;
+      const doneCount = LESSONS.filter((item) => done[item.id]).length;
+      const percent = TOTAL === 0 ? 0 : Math.round((doneCount / TOTAL) * 100);
+      const previous = lesson && lesson.n > 1 ? LESSONS[lesson.n - 2] : null;
+      const following = lesson && lesson.n < TOTAL ? LESSONS[lesson.n] : null;
+
+      useEffect(() => {
+        if (!courseDataReady || tab !== 'course') return undefined;
         function onKeyDown(event) {
           const target = event.target;
           if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
@@ -1206,9 +1269,10 @@ window.__ModuleLoader__.load({
         }
         window.addEventListener('keydown', onKeyDown);
         return () => window.removeEventListener('keydown', onKeyDown);
-      }, [tab, lesson.id]);
+      }, [tab, lesson ? lesson.id : null]);
 
       useEffect(() => {
+        if (!lesson) return;
         const key = lesson.trackKey;
         setOpenTracks((current) => {
           if (current[key]) return current;
@@ -1216,7 +1280,7 @@ window.__ModuleLoader__.load({
           writeJson(NAV_KEY, next);
           return next;
         });
-      }, [lesson.id]);
+      }, [lesson ? lesson.id : null]);
 
       function flash(message) { setToast(message); }
 
@@ -1276,6 +1340,24 @@ window.__ModuleLoader__.load({
         if (layoutService && typeof layoutService.selectPanel === 'function') {
           layoutService.selectPanel('conversation');
         }
+      }
+
+      if (!courseDataReady) {
+        return h('div', { className: 'ra-root' },
+          h('style', null, CSS),
+          h('div', { className: 'ra-loading' },
+            h(CrabMark, { size: 34, filled: true }),
+            h('div', { className: 'ra-loading-title' }, t('panel.title')),
+            h('div', { className: 'ra-loading-text' }, courseDataError ? t('loading.error') : t('loading.data')),
+            courseDataError ? h('div', { className: 'ra-loading-error' }, courseDataError) : null,
+            courseDataError
+              ? h('button', {
+                  type: 'button', className: 'ra-primary',
+                  onClick: () => { courseDataLoading = false; loadCourseData(); },
+                }, t('loading.retry'))
+              : null
+          )
+        );
       }
 
       return h('div', { className: 'ra-root' },

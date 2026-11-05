@@ -95,14 +95,9 @@ const trackMeta = tracks.map((track, trackIndex) => {
   return { ...meta, index: trackIndex, firstN: first, lastN: n, lessonCount: trackLessons.length };
 });
 
-const dataSource = [
-  'const TRACKS = ' + JSON.stringify(trackMeta) + ';',
-  'const LESSONS = ' + JSON.stringify(lessons) + ';',
-  'const CHEATSHEET = ' + JSON.stringify(CHEATSHEET) + ';',
-  'const BLUEPRINTS = ' + JSON.stringify(BLUEPRINTS) + ';',
-  'const TOTAL = LESSONS.length;',
-  'const PLUGIN_VERSION = ' + JSON.stringify(pkg.version) + ';',
-].join('\n    ');
+// The curriculum is served by the Host at /rust-academy/data.json and loaded
+// lazily when the panel opens, so the Client module stays small.
+const dataSource = 'const PLUGIN_VERSION = ' + JSON.stringify(pkg.version) + ';';
 
 const template = fs.readFileSync(path.join(here, 'src', 'app.js'), 'utf8');
 if (!template.includes('/*@DATA@*/')) {

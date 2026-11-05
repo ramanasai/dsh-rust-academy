@@ -27,10 +27,19 @@ const RUN_MS = 5000;
 const GRACE_MS = 1000;
 const MAX_PARALLEL = 2;
 const TEMP_PREFIX = 'dsh-rust-';
+let dataPayloadPromise = null;
 
-export const inject = ['webServer', 'subprocess'];
+export const inject = ['webServer'];
 
 export function apply(ctx, config = {}) {
+  // Course data is static public content: serve it without the runner flag so
+  // the panel can lazy-load the curriculum even when local execution is off.
+  ctx.effect(() => ctx.webServer.register({
+    kind: 'exact',
+    path: ROUTE + '/data.json',
+    handler: dataHandler,
+  }), 'rust-academy: course data route');
+
   // Hand-validated on purpose: plugin packages cannot resolve schemastery here.
   if (!config || config.enabled !== true) return;
 
@@ -59,17 +68,7 @@ export function apply(ctx, config = {}) {
   sweepStaleDirs().catch(() => {});
 
   async function handler(req, res) {
-    const send = (status, body) => {
-      try {
-        res.writeHead(status, {
-          'content-type': 'application/json; charset=utf-8',
-          'cache-control': 'no-store',
-        });
-        res.end(JSON.stringify(body));
-      } catch (error) {
-        /* connection already closed */
-      }
-    };
+    const send = (status, body) => sendJson(res, status, body);
 
     // Auth: the webserver does not authenticate routes; the plugin must.
     const connection = ctx.get('connection');
@@ -121,8 +120,74 @@ export function apply(ctx, config = {}) {
   }
 }
 
+function sendJson(res, status, body) {
+  try {
+    res.writeHead(status, {
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': 'no-store',
+    });
+    res.end(JSON.stringify(body));
+  } catch (error) {
+    /* connection already closed */
+  }
+}
+
+async function dataHandler(req, res) {
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    sendJson(res, 405, { error: 'method not allowed' });
+    return;
+  }
+  try {
+    const payload = await buildCourseData();
+    res.writeHead(200, {
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': 'no-store',
+      'content-length': Buffer.byteLength(payload),
+    });
+    res.end(payload);
+  } catch (error) {
+    sendJson(res, 500, { error: error && error.message ? error.message : 'failed to build course data' });
+  }
+}
+
+async function buildCourseData() {
+  if (dataPayloadPromise) return dataPayloadPromise;
+  dataPayloadPromise = (async () => {
+    const index = await import(new URL('./src/data/index.mjs', import.meta.url).href);
+    const tracks = [];
+    const lessons = [];
+    let n = 0;
+    for (const name of index.TRACK_FILES) {
+      const mod = await import(new URL('./src/data/' + name + '.mjs', import.meta.url).href);
+      const track = mod.default;
+      const { lessons: trackLessons, ...meta } = track;
+      const first = n + 1;
+      const trackIndex = tracks.length;
+      for (const lesson of trackLessons) {
+        n += 1;
+        lessons.push({ ...lesson, n, trackIndex, trackKey: track.key, trackTitle: track.title });
+      }
+      tracks.push({ ...meta, index: trackIndex, firstN: first, lastN: n, lessonCount: trackLessons.length });
+    }
+    const reference = await import(new URL('./src/data/reference.mjs', import.meta.url).href);
+    return JSON.stringify({
+      tracks,
+      lessons,
+      cheatsheet: reference.CHEATSHEET,
+      blueprints: reference.BLUEPRINTS,
+    });
+  })();
+  dataPayloadPromise = dataPayloadPromise.catch((error) => {
+    dataPayloadPromise = null;
+    throw error;
+  });
+  return dataPayloadPromise;
+}
+
 async function execute(ctx, code, edition, dirs, handles, signal) {
-  const rustc = await ctx.subprocess.resolveExecutable('rustc');
+  const subprocess = ctx.get('subprocess');
+  if (!subprocess) throw new Error('local runner unavailable: subprocess service missing');
+  const rustc = await subprocess.resolveExecutable('rustc');
   const dir = await mkdtemp(join(tmpdir(), TEMP_PREFIX));
   dirs.add(dir);
   const sandbox = ctx.get('sandbox');
@@ -141,7 +206,7 @@ async function execute(ctx, code, edition, dirs, handles, signal) {
     await writeFile(join(dir, 'main.rs'), code, { mode: 0o600 });
     const binary = join(dir, 'prog');
     const buildArgv = await confine([rustc, '--edition', edition, '-O', '-o', binary, 'main.rs']);
-    const build = await run(ctx, handles, buildArgv, dir, COMPILE_MS, signal);
+    const build = await run(subprocess, handles, buildArgv, dir, COMPILE_MS, signal);
     if (build.exitCode !== 0) {
       return { success: false, phase: 'compile', ...build };
     }
@@ -149,7 +214,7 @@ async function execute(ctx, code, edition, dirs, handles, signal) {
       ? [binary]
       : ['/bin/sh', '-c', 'ulimit -t 5 2>/dev/null; ulimit -v 524288 2>/dev/null; exec "$0"', binary];
     const runArgv = await confine(programArgv);
-    const result = await run(ctx, handles, runArgv, dir, RUN_MS, signal);
+    const result = await run(subprocess, handles, runArgv, dir, RUN_MS, signal);
     return { success: result.exitCode === 0, phase: 'run', ...result };
   } finally {
     dirs.delete(dir);
@@ -157,10 +222,10 @@ async function execute(ctx, code, edition, dirs, handles, signal) {
   }
 }
 
-async function run(ctx, handles, argv, cwd, timeoutMs, outer) {
+async function run(subprocess, handles, argv, cwd, timeoutMs, outer) {
   const timeout = AbortSignal.timeout(timeoutMs);
   const signal = outer ? AbortSignal.any([outer, timeout]) : timeout;
-  const handle = ctx.subprocess.spawn({
+  const handle = subprocess.spawn({
     argv,
     cwd,
     graceMs: GRACE_MS,

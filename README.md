@@ -175,6 +175,11 @@ your user and can read files you can read and use the network. Keep the local
 toggle off for untrusted code; the Playground falls back to the remote sandbox
 when the local runner is unavailable or fails.
 
+The Client module itself is small (~95 KB): the curriculum (6.5 MB JSON) is
+served by the Host at `/rust-academy/data.json` and loaded lazily when the panel
+opens, so it no longer inflates the initial page bundle. Offline-only use of the
+panel therefore needs the Host half active.
+
 Each chapter supports: `id`, `title`, `minutes`, `level`, `goal`, `sections[]`
 (`h`/`p`/`list`/`code`/`tip`), `exercise` (`prompt`/`starter`/`hint`/`solution`),
 `questions[]` (MCQ with `answer` index and `explain`), `quickbytes[]`,
@@ -187,7 +192,7 @@ Each chapter supports: `id`, `title`, `minutes`, `level`, `goal`, `sections[]`
 | --- | --- |
 | `package.json` | Bundle manifest: patch, Client module, locale and icon exports |
 | `cordis.patch.yml` | Inserts the `rust-academy` row into the profile |
-| `index.js` | Host half: authenticated, sandboxed local Rust runner (opt-in) |
+| `index.js` | Host half: lazy curriculum data route + authenticated, sandboxed local Rust runner (opt-in) |
 | `client.js` | Generated Client module: sidebar icon + full panel |
 | `build.mjs` | Assembles `client.js` from `src/app.js` + `src/data/*.mjs` |
 | `src/app.js` | UI template (React without JSX) |
