@@ -23,6 +23,8 @@ window.__ModuleLoader__.load({
     const QUIZ_KEY = 'dsh.rust-academy.quiz.v1';
     const PLAYGROUND_KEY = 'dsh.rust-academy.playground.v1';
     const PLAYGROUND_URL = 'https://play.rust-lang.org/execute';
+    const PLAYGROUND_CLIPPY = 'https://play.rust-lang.org/clippy';
+    const PLAYGROUND_FORMAT = 'https://play.rust-lang.org/format';
     const PLAYGROUND_DEFAULT = 'fn main() {\n    println!("Hello from the Rust Playground!");\n}\n';
     let playgroundAbort = null;
 
@@ -40,6 +42,17 @@ window.__ModuleLoader__.load({
       'playground.privacy': 'Runs in the official play.rust-lang.org sandbox — code is sent there, needs network.',
       'playground.run': 'Run',
       'playground.running': 'Running in the sandbox…',
+      'playground.lint': 'Clippy lint',
+      'playground.runningLint': 'Linting…',
+      'playground.format': 'Format',
+      'playground.formatting': 'Formatting…',
+      'playground.formatted': 'Formatted with rustfmt',
+      'playground.diagnostics': 'Diagnostics',
+      'playground.suggestions': 'Suggestions',
+      'playground.insert': 'Insert at cursor',
+      'playground.testSummary': '{passed} passed · {failed} failed',
+      'playground.testsOk': 'Tests passed',
+      'playground.testsFailed': 'Tests failed',
       'playground.clear': 'Clear',
       'playground.loadStarter': 'Load chapter starter',
       'playground.loadSolution': 'Load chapter solution',
@@ -659,15 +672,55 @@ window.__ModuleLoader__.load({
       );
     }
 
+    function parseDiagnostics(stderr) {
+      const lines = String(stderr || '').split('\n');
+      const items = [];
+      let current = null;
+      for (const line of lines) {
+        const header = line.match(/^(error|warning)(?:\[([A-Z]\d+)\])?:\s*(.*)$/);
+        if (header) {
+          current = { severity: header[1], code: header[2] || '', message: header[3], location: '', helps: [] };
+          items.push(current);
+          continue;
+        }
+        if (!current) continue;
+        const location = line.match(/^\s*-->\s*(\S+:\d+:\d+)/);
+        if (location) { current.location = location[1]; continue; }
+        const help = line.match(/^\s*(?:=\s*)?help:\s*(.*)$/);
+        if (help) { current.helps.push(help[1]); continue; }
+        const note = line.match(/^\s*=\s*note:\s*(.*)$/);
+        if (note) { current.helps.push('note: ' + note[1]); continue; }
+      }
+      return items;
+    }
+
+    function parseTestSummary(stdout) {
+      const match = String(stdout || '').match(/test result:\s*(ok|FAILED)\.\s*(\d+) passed;\s*(\d+) failed/);
+      if (!match) return null;
+      return { ok: match[1] === 'ok', passed: Number(match[2]), failed: Number(match[3]) };
+    }
+
+    const PLAYGROUND_SNIPPETS = [
+      'fn main() {}', 'let mut ', 'println!()', 'format!()', 'match ', 'if let ',
+      'impl ', 'struct ', 'enum ', 'trait ', '#[derive(Debug)]', 'Vec<',
+      'Option<', 'Result<', 'String', 'HashMap', '.iter()', '.collect()',
+      '.unwrap_or()', '?', 'async fn ', '.await', 'assert_eq!()',
+    ];
+
     function Playground({ lesson }) {
       const saved = readJson(PLAYGROUND_KEY, {});
       const [code, setCode] = useState(() => typeof saved.code === 'string' ? saved.code : PLAYGROUND_DEFAULT);
       const [edition, setEdition] = useState(typeof saved.edition === 'string' ? saved.edition : '2021');
       const [tests, setTests] = useState(!!saved.tests);
       const [running, setRunning] = useState(false);
+      const [kind, setKind] = useState('run');
       const [result, setResult] = useState(null);
+      const [diagnostics, setDiagnostics] = useState([]);
+      const [testSummary, setTestSummary] = useState(null);
+      const [notice, setNotice] = useState('');
       const [error, setError] = useState('');
       const [elapsed, setElapsed] = useState(0);
+      const [selection, setSelection] = useState({ start: 0, end: 0 });
 
       useEffect(() => {
         writeJson(PLAYGROUND_KEY, { code, edition, tests });
@@ -677,18 +730,74 @@ window.__ModuleLoader__.load({
         if (playgroundAbort) playgroundAbort.abort();
       }, []);
 
-      function run() {
+      const suggestions = PLAYGROUND_SNIPPETS.concat(
+        lesson && lesson.crates ? lesson.crates.map((name) => name + '::') : []
+      );
+
+      function finish(payload) {
+        const value = payload && typeof payload === 'object' ? payload : { success: false, stdout: '', stderr: 'Unexpected response' };
+        setResult(value);
+        setDiagnostics(parseDiagnostics(value.stderr));
+        setTestSummary(parseTestSummary(value.stdout));
+        setRunning(false);
+      }
+
+      function fail(err) {
+        if (err && err.name === 'AbortError') { setRunning(false); return; }
+        setError(t('playground.networkError'));
+        setRunning(false);
+      }
+
+      function execute(nextKind) {
         if (running) return;
         const controller = new AbortController();
         playgroundAbort = controller;
         const started = Date.now();
         setRunning(true);
+        setKind(nextKind);
         setError('');
+        setNotice('');
         setResult(null);
-        fetch(PLAYGROUND_URL, {
+        setDiagnostics([]);
+        setTestSummary(null);
+        const body = {
+          channel: 'stable',
+          mode: 'debug',
+          edition,
+          crateType: 'bin',
+          tests: nextKind === 'run' ? tests : false,
+          code,
+        };
+        const url = nextKind === 'lint' ? PLAYGROUND_CLIPPY : PLAYGROUND_EXECUTE;
+        fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ channel: 'stable', mode: 'debug', edition, crateType: 'bin', tests, code }),
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        })
+          .then((response) => {
+            if (!response.ok) throw new Error('HTTP ' + response.status);
+            return response.json();
+          })
+          .then((payload) => { setElapsed(Date.now() - started); finish(payload); })
+          .catch(fail);
+      }
+
+      function formatCode() {
+        if (running) return;
+        const controller = new AbortController();
+        playgroundAbort = controller;
+        setRunning(true);
+        setKind('format');
+        setError('');
+        setNotice('');
+        setResult(null);
+        setDiagnostics([]);
+        setTestSummary(null);
+        fetch(PLAYGROUND_FORMAT, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code, edition }),
           signal: controller.signal,
         })
           .then((response) => {
@@ -696,21 +805,34 @@ window.__ModuleLoader__.load({
             return response.json();
           })
           .then((payload) => {
-            setResult(payload && typeof payload === 'object' ? payload : { success: false, stdout: '', stderr: 'Unexpected response' });
-            setElapsed(Date.now() - started);
-            setRunning(false);
+            if (payload && typeof payload.code === 'string') {
+              setCode(payload.code);
+              setNotice(t('playground.formatted'));
+              setRunning(false);
+            } else {
+              finish(payload);
+            }
           })
-          .catch((err) => {
-            if (err && err.name === 'AbortError') { setRunning(false); return; }
-            setError(t('playground.networkError'));
-            setRunning(false);
-          });
+          .catch(fail);
       }
 
       function loadExercise(part) {
         if (!lesson || !lesson.exercise) return;
         setCode(lesson.exercise[part] || '');
+        setNotice('');
       }
+
+      function insertSnippet(text) {
+        const start = typeof selection.start === 'number' ? selection.start : code.length;
+        const end = typeof selection.end === 'number' ? selection.end : code.length;
+        setCode(code.slice(0, start) + text + code.slice(end));
+        setNotice('');
+      }
+
+      const failed = result ? result.success === false : false;
+      const statusLabel = kind === 'lint' ? t('playground.lint') : kind === 'format' ? t('playground.format') : t('playground.run');
+      const runningLabel = kind === 'lint' ? t('playground.runningLint')
+        : kind === 'format' ? t('playground.formatting') : t('playground.running');
 
       return h('div', { className: 'ra-play' },
         h('div', { className: 'ra-play-toolbar' },
@@ -723,15 +845,22 @@ window.__ModuleLoader__.load({
               h('select', {
                 className: 'ra-select', value: edition, 'aria-label': t('playground.edition'),
                 onChange: (event) => setEdition(event.target.value),
-              },
-                ['2015', '2018', '2021', '2024'].map((value) => h('option', { key: value, value }, value))
-              )
+              }, ['2015', '2018', '2021', '2024'].map((value) => h('option', { key: value, value }, value)))
             ),
             h('label', { className: 'ra-play-check' },
-              h('input', {
-                type: 'checkbox', checked: tests,
-                onChange: (event) => setTests(event.target.checked),
-              }), t('playground.tests')),
+              h('input', { type: 'checkbox', checked: tests, onChange: (event) => setTests(event.target.checked) }),
+              t('playground.tests')
+            ),
+            h('button', {
+              type: 'button', className: 'ra-primary', disabled: running,
+              title: t('playground.hint'), onClick: () => execute('run'),
+            }, running && kind === 'run' ? t('playground.running') : t('playground.run')),
+            h('button', {
+              type: 'button', className: 'ra-ghost', disabled: running, onClick: () => execute('lint'),
+            }, running && kind === 'lint' ? t('playground.runningLint') : t('playground.lint')),
+            h('button', {
+              type: 'button', className: 'ra-ghost', disabled: running, onClick: formatCode,
+            }, running && kind === 'format' ? t('playground.formatting') : t('playground.format')),
             h('button', {
               type: 'button', className: 'ra-ghost', disabled: !lesson || !lesson.exercise,
               onClick: () => loadExercise('starter'),
@@ -740,11 +869,14 @@ window.__ModuleLoader__.load({
               type: 'button', className: 'ra-ghost', disabled: !lesson || !lesson.exercise,
               onClick: () => loadExercise('solution'),
             }, t('playground.loadSolution')),
-            h('button', { type: 'button', className: 'ra-ghost', onClick: () => setCode('') }, t('playground.clear')),
-            h('button', {
-              type: 'button', className: 'ra-primary', disabled: running,
-              title: t('playground.hint'), onClick: run,
-            }, running ? t('playground.running') : t('playground.run'))
+            h('button', { type: 'button', className: 'ra-ghost', onClick: () => { setCode(''); setNotice(''); } }, t('playground.clear'))
+          ),
+          h('div', { className: 'ra-play-suggestions' },
+            h('span', { className: 'ra-play-suggestions-label' }, t('playground.suggestions')),
+            suggestions.map((snippet) => h('button', {
+              key: snippet, type: 'button', className: 'ra-chip ra-chip-button',
+              title: t('playground.insert'), onClick: () => insertSnippet(snippet),
+            }, snippet))
           )
         ),
         h('div', { className: 'ra-play-body' },
@@ -754,25 +886,50 @@ window.__ModuleLoader__.load({
               value: code,
               spellCheck: false,
               'aria-label': t('playground.title'),
-              onChange: (event) => setCode(event.target.value),
+              onChange: (event) => { setCode(event.target.value); setNotice(''); },
+              onSelect: (event) => setSelection({ start: event.target.selectionStart, end: event.target.selectionEnd }),
               onKeyDown: (event) => {
                 if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
                   event.preventDefault();
-                  run();
+                  execute('run');
                 }
               },
             })
           ),
           h('div', { className: 'ra-play-output' },
             error ? h('div', { className: 'ra-play-error' }, error) : null,
+            notice ? h('div', { className: 'ra-play-notice' }, notice) : null,
             result
               ? h('div', { className: 'ra-play-result' },
                   h('div', { className: 'ra-play-status' },
-                    h('span', { className: 'ra-badge ' + (result.success ? 'ra-badge-ok' : 'ra-badge-bad') },
-                      result.success ? t('playground.success') : t('playground.failure')),
+                    h('span', { className: 'ra-badge ' + (failed ? 'ra-badge-bad' : 'ra-badge-ok') },
+                      failed ? t('playground.failure') : t('playground.success')),
                     h('span', { className: 'ra-play-meta' },
-                      (result.exitDetail || '') + (elapsed ? ' · ' + elapsed + ' ms' : ''))
+                      statusLabel + ' · ' + (result.exitDetail || result.exit_detail || '') + (elapsed ? ' · ' + elapsed + ' ms' : ''))
                   ),
+                  testSummary
+                    ? h('div', { className: 'ra-play-tests ' + (testSummary.ok ? 'is-ok' : 'is-bad') },
+                        (testSummary.ok ? t('playground.testsOk') : t('playground.testsFailed')) +
+                        ' · ' + t('playground.testSummary', { passed: testSummary.passed, failed: testSummary.failed }))
+                    : null,
+                  diagnostics.length
+                    ? h('div', { className: 'ra-play-section' },
+                        h('h4', null, t('playground.diagnostics')),
+                        h('ul', { className: 'ra-play-diagnostics' },
+                          diagnostics.slice(0, 12).map((item, index) => h('li', { key: index, className: 'ra-diag ra-diag-' + item.severity },
+                            h('div', { className: 'ra-diag-head' },
+                              h('span', { className: 'ra-diag-sev' }, item.severity + (item.code ? ' [' + item.code + ']' : '')),
+                              h('span', { className: 'ra-diag-msg' }, item.message)
+                            ),
+                            item.location ? h('div', { className: 'ra-diag-loc' }, item.location) : null,
+                            item.helps.length
+                              ? h('ul', { className: 'ra-diag-helps' },
+                                  item.helps.map((help, helpIndex) => h('li', { key: helpIndex }, help)))
+                              : null
+                          ))
+                        )
+                      )
+                    : null,
                   h('div', { className: 'ra-play-section' },
                     h('h4', null, t('playground.stdout')),
                     h('pre', { className: 'ra-play-pre' }, result.stdout || '')
@@ -783,13 +940,11 @@ window.__ModuleLoader__.load({
                         h('pre', { className: 'ra-play-pre ra-play-stderr' }, result.stderr))
                     : null
                 )
-              : h('div', { className: 'ra-play-empty' },
-                  running ? t('playground.running') : t('playground.empty'))
+              : h('div', { className: 'ra-play-empty' }, running ? runningLabel : t('playground.empty'))
           )
         )
       );
     }
-
     function Panel() {
       useRevision();
 
@@ -1154,6 +1309,26 @@ window.__ModuleLoader__.load({
 .ra-play-section h4{margin:0 0 4px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--dsw-alias-label-secondary);}
 .ra-play-pre{margin:0 0 10px;overflow-x:auto;font:11.5px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--dsw-alias-label-primary);white-space:pre-wrap;word-break:break-word;}
 .ra-play-stderr{color:var(--dsw-alias-label-secondary);}
+.ra-play-section{margin-bottom:10px;}
+.ra-play-suggestions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+.ra-play-suggestions-label{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--dsw-alias-label-secondary);margin-right:2px;}
+.ra-chip-button{cursor:pointer;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10.5px;}
+.ra-chip-button:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-brand-primary);}
+.ra-play-notice{margin-bottom:10px;padding:8px 11px;border:1px solid var(--dsw-alias-state-success-primary);border-radius:8px;color:var(--dsw-alias-state-success-primary);font-size:12px;}
+.ra-play-tests{margin:0 0 10px;padding:8px 11px;border-radius:8px;font-size:12px;font-variant-numeric:tabular-nums;}
+.ra-play-tests.is-ok{color:var(--dsw-alias-state-success-primary);border:1px solid var(--dsw-alias-state-success-primary);}
+.ra-play-tests.is-bad{color:var(--dsw-alias-state-error-primary);border:1px solid var(--dsw-alias-state-error-primary);}
+.ra-play-diagnostics{list-style:none;margin:0 0 10px;padding:0;display:flex;flex-direction:column;gap:6px;}
+.ra-diag{border-left:3px solid var(--dsw-alias-border-l2);padding:6px 9px;background:var(--dsw-alias-bg-layer-2);border-radius:0 7px 7px 0;}
+.ra-diag-error{border-left-color:var(--dsw-alias-state-error-primary);}
+.ra-diag-warning{border-left-color:var(--dsw-alias-state-warn-primary);}
+.ra-diag-head{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;font-size:12px;}
+.ra-diag-sev{font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;font-weight:700;color:var(--dsw-alias-label-secondary);}
+.ra-diag-error .ra-diag-sev{color:var(--dsw-alias-state-error-primary);}
+.ra-diag-warning .ra-diag-sev{color:var(--dsw-alias-state-warn-primary);}
+.ra-diag-msg{flex:1 1 auto;min-width:0;color:var(--dsw-alias-label-primary);}
+.ra-diag-loc{margin-top:2px;font:10.5px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--dsw-alias-label-secondary);}
+.ra-diag-helps{margin:3px 0 0;padding-left:16px;font-size:11.5px;color:var(--dsw-alias-label-secondary);}
 @media (max-width:900px){
   .ra-play-body{flex-direction:column;}
   .ra-play-code{min-height:180px;}
