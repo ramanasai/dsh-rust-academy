@@ -21,6 +21,7 @@ window.__ModuleLoader__.load({
     const PROGRESS_KEY = 'dsh.rust-academy.progress.v1';
     const LAST_KEY = 'dsh.rust-academy.last.v1';
     const QUIZ_KEY = 'dsh.rust-academy.quiz.v1';
+    const NAV_KEY = 'dsh.rust-academy.nav.v1';
     const PLAYGROUND_KEY = 'dsh.rust-academy.playground.v1';
     const PLAYGROUND_URL = 'https://play.rust-lang.org/execute';
     const PLAYGROUND_CLIPPY = 'https://play.rust-lang.org/clippy';
@@ -464,10 +465,14 @@ window.__ModuleLoader__.load({
       return h('button', { type: 'button', className: 'ra-tab' + (active ? ' is-active' : ''), onClick, 'aria-pressed': active }, children);
     }
 
-    function lessonRow(lesson, selectedId, done, onSelect, showTrack) {
+    function lessonRow(lesson, selectedId, done, onSelect, showTrack, autoScroll) {
+      const ref = autoScroll && lesson.id === selectedId
+        ? (node) => { if (node && node.scrollIntoView) node.scrollIntoView({ block: 'nearest' }); }
+        : undefined;
       return h('button', {
         type: 'button',
         key: lesson.id,
+        ref,
         className: 'ra-lesson' + (lesson.id === selectedId ? ' is-active' : '') + (done[lesson.id] ? ' is-done' : ''),
         onClick: () => onSelect(lesson.id),
         'aria-current': lesson.id === selectedId ? 'page' : undefined,
@@ -479,7 +484,7 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function LessonNav({ selectedId, done, query, trackFilter, onSelect }) {
+    function LessonNav({ selectedId, done, query, trackFilter, openTracks, onToggleTrack, onSelect }) {
       const searching = String(query || '').trim().length > 0;
       if (searching) {
         const results = LESSONS.filter((lesson) => matchesQuery(lesson, query));
@@ -487,7 +492,7 @@ window.__ModuleLoader__.load({
           h('div', { className: 'ra-nav-label' }, t('search.results', { n: results.length })),
           results.length === 0
             ? h('div', { className: 'ra-empty' }, t('search.empty'))
-            : results.map((lesson) => lessonRow(lesson, selectedId, done, onSelect, true))
+            : results.map((lesson) => lessonRow(lesson, selectedId, done, onSelect, true, false))
         );
       }
       const activeTracks = trackFilter && trackFilter !== 'all'
@@ -497,13 +502,27 @@ window.__ModuleLoader__.load({
         activeTracks.map((track) => {
           const trackLessons = LESSONS.filter((lesson) => lesson.trackIndex === track.index);
           const completed = trackLessons.filter((lesson) => done[lesson.id]).length;
-          return h('div', { className: 'ra-stage', key: track.key },
-            h('div', { className: 'ra-stage-head' },
+          const percent = trackLessons.length ? Math.round((completed / trackLessons.length) * 100) : 0;
+          const open = !!openTracks[track.key];
+          return h('div', { className: 'ra-stage' + (open ? ' is-open' : ''), key: track.key },
+            h('button', {
+              type: 'button',
+              className: 'ra-stage-head',
+              onClick: () => onToggleTrack(track.key),
+              'aria-expanded': open,
+            },
+              h('span', { className: 'ra-stage-chevron' }, open ? '▾' : '▸'),
               h('span', { className: 'ra-track-title' }, track.title),
               h('span', { className: 'ra-track-level' }, h(LevelChip, { level: track.level })),
               h('span', { className: 'ra-stage-count' }, t('track.done', { done: completed, total: trackLessons.length }))
             ),
-            trackLessons.map((lesson) => lessonRow(lesson, selectedId, done, onSelect, false))
+            h('div', { className: 'ra-stage-progress' },
+              h('div', { className: 'ra-stage-progress-fill', style: { width: percent + '%' } })
+            ),
+            open
+              ? h('div', { className: 'ra-stage-lessons' },
+                  trackLessons.map((lesson) => lessonRow(lesson, selectedId, done, onSelect, false, true)))
+              : null
           );
         })
       );
@@ -963,6 +982,7 @@ window.__ModuleLoader__.load({
       const [confirmReset, setConfirmReset] = useState(false);
       const [focus, setFocus] = useState(false);
       const [trackFilter, setTrackFilter] = useState('all');
+      const [openTracks, setOpenTracks] = useState(() => readJson(NAV_KEY, {}));
 
       useEffect(() => {
         if (!toast) return undefined;
@@ -993,6 +1013,16 @@ window.__ModuleLoader__.load({
         return () => window.removeEventListener('keydown', onKeyDown);
       }, [tab, lesson.id]);
 
+      useEffect(() => {
+        const key = lesson.trackKey;
+        setOpenTracks((current) => {
+          if (current[key]) return current;
+          const next = Object.assign({}, current, { [key]: true });
+          writeJson(NAV_KEY, next);
+          return next;
+        });
+      }, [lesson.id]);
+
       function flash(message) { setToast(message); }
 
       function copy(text) {
@@ -1005,6 +1035,16 @@ window.__ModuleLoader__.load({
       function selectLesson(id) {
         setSelectedId(id);
         writeJson(LAST_KEY, { id });
+      }
+
+      function toggleTrack(key) {
+        setOpenTracks((current) => {
+          const next = Object.assign({}, current);
+          if (next[key]) delete next[key];
+          else next[key] = true;
+          writeJson(NAV_KEY, next);
+          return next;
+        });
       }
 
       function openLesson(id) {
@@ -1072,6 +1112,11 @@ window.__ModuleLoader__.load({
                     const value = event.target.value;
                     setTrackFilter(value);
                     if (value !== 'all') {
+                      setOpenTracks((current) => {
+                        const next = Object.assign({}, current, { [value]: true });
+                        writeJson(NAV_KEY, next);
+                        return next;
+                      });
                       const first = LESSONS.find((item) => item.trackKey === value);
                       if (first) selectLesson(first.id);
                     }
@@ -1104,7 +1149,7 @@ window.__ModuleLoader__.load({
         ),
         tab === 'course'
           ? h('div', { className: 'ra-body' + (focus ? ' is-focus' : '') },
-              h(LessonNav, { selectedId, done, query, trackFilter, onSelect: selectLesson }),
+              h(LessonNav, { selectedId, done, query, trackFilter, openTracks, onToggleTrack: toggleTrack, onSelect: selectLesson }),
               h(Article, {
                 key: lesson.id,
                 lesson,
@@ -1129,7 +1174,13 @@ window.__ModuleLoader__.load({
     function SidebarIcon({ size = 20, active = false }) {
       return h('span', {
         className: 'ra-sidebar-icon',
-        style: { display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: active ? 1 : 0.9 },
+        style: {
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: active ? 'var(--dsw-alias-brand-primary)' : 'currentColor',
+          opacity: active ? 1 : 0.92,
+        },
       }, h(CrabMark, { size }));
     }
 
@@ -1160,14 +1211,20 @@ window.__ModuleLoader__.load({
 .ra-body.is-focus .ra-article{padding-left:56px;padding-right:56px;}
 .ra-nav{width:284px;flex:0 0 284px;overflow-y:auto;border-right:1px solid var(--dsw-alias-border-l1);padding:12px 10px 28px;}
 .ra-nav-label{font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--dsw-alias-label-secondary);padding:6px 8px;}
-.ra-stage{margin:0 0 16px;}
-.ra-stage-head{display:flex;align-items:center;gap:6px;padding:6px 8px;font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--dsw-alias-label-secondary);}
+.ra-stage{margin:0 0 10px;}
+.ra-stage-head{display:flex;align-items:center;gap:6px;width:100%;appearance:none;border:0;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-secondary);font:inherit;font-size:10px;letter-spacing:.09em;text-transform:uppercase;text-align:left;padding:7px 8px;border-radius:8px;cursor:pointer;position:sticky;top:0;z-index:2;}
+.ra-stage-head:hover{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);}
+.ra-stage-head:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:-2px;}
+.ra-stage-chevron{flex:0 0 10px;font-size:10px;color:var(--dsw-alias-label-secondary);}
+.ra-stage-progress{height:3px;margin:2px 8px 6px;border-radius:999px;background:var(--dsw-alias-bg-layer-2);overflow:hidden;}
+.ra-stage-progress-fill{height:100%;border-radius:999px;background:var(--dsw-alias-brand-primary);transition:width .2s ease;}
+.ra-stage-lessons{display:flex;flex-direction:column;gap:1px;}
 .ra-track-title{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .ra-track-level{flex:0 0 auto;text-transform:none;letter-spacing:0;}
 .ra-stage-count{flex:0 0 auto;font-variant-numeric:tabular-nums;letter-spacing:0;text-transform:none;}
 .ra-lesson{display:flex;align-items:center;gap:9px;width:100%;appearance:none;border:0;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;text-align:left;padding:7px 8px;border-radius:8px;cursor:pointer;}
 .ra-lesson:hover{background:var(--dsw-alias-bg-layer-1);}
-.ra-lesson.is-active{background:var(--dsw-alias-bg-layer-2);box-shadow:inset 0 0 0 1px var(--dsw-alias-border-l1);}
+.ra-lesson.is-active{background:var(--dsw-alias-bg-layer-2);box-shadow:inset 2px 0 0 var(--dsw-alias-brand-primary),inset 0 0 0 1px var(--dsw-alias-border-l1);}
 .ra-lesson-num{flex:0 0 21px;height:21px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:10.5px;font-variant-numeric:tabular-nums;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);}
 .ra-lesson.is-done .ra-lesson-num{background:var(--dsw-alias-state-success-primary);color:var(--dsw-alias-bg-base);}
 .ra-lesson-title{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px;}
