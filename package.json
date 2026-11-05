@@ -1,8 +1,8 @@
 {
   "name": "@local/rust-academy",
-  "version": "1.0.0",
+  "version": "3.0.0",
   "private": true,
-  "description": "A Rust learning studio in the Harness sidebar: 20 lessons, exercises, and a syntax cheatsheet.",
+  "description": "Industry-grade Rust curriculum in the Harness sidebar: six tracks from language fundamentals to web services, data, microservices, process handling, and production platform work.",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -14,6 +14,9 @@
     "dsh",
     "dsh-plugin",
     "rust",
+    "axum",
+    "tokio",
+    "microservices",
     "learning"
   ],
   "type": "module",
@@ -29,8 +32,15 @@
     "cordis.patch.yml",
     "locale/*.json",
     "icon.svg",
-    "README.md"
+    "README.md",
+    "build.mjs",
+    "src/**",
+    "scripts/**"
   ],
+  "scripts": {
+    "build": "node build.mjs",
+    "validate": "node scripts/validate-data.mjs"
+  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"

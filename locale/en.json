@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Rust Academy",
-    "description": "A built-in Rust course in the sidebar: 20 lessons across 7 stages, hands-on exercises with hints and solutions, a syntax cheatsheet, and progress tracking."
+    "description": "Industry-grade Rust curriculum in the sidebar: six tracks from language fundamentals to production web services (axum), data and persistence (SQLx, Redis), microservices and messaging (tonic, Kafka, NATS), process handling and workers, and platform work (observability, Kubernetes, CI/CD) — with exercises, production checklists, architecture blueprints, and a cheatsheet."
   }
 }

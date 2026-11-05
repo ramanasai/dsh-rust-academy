@@ -1,0 +1,36 @@
+/**
+ * Ordered list of track data modules. build.mjs imports each entry and flattens
+ * its lessons into the Client module. Add new tracks here.
+ */
+export const TRACK_FILES = [
+  'foundations',
+  'web',
+  'data',
+  'services',
+  'processes',
+  'production',
+  'rust-advanced',
+  'algorithms',
+  'data-structures',
+  'database-internals',
+  'distributed-systems',
+  'networking',
+  'security',
+  'testing',
+  'observability',
+  'devops',
+  'data-engineering',
+  'systems',
+  'ai-ml',
+  'architecture',
+  'interview-prep',
+  'projects',
+  'frontend-wasm',
+  'embedded',
+  'design-principles',
+  'engineering-craft',
+  'performance-engineering',
+  'concurrency-patterns',
+  'api-design',
+  'debugging-troubleshooting',
+];
