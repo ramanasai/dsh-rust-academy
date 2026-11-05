@@ -202,7 +202,7 @@ window.__ModuleLoader__.load({
 
     // ------------------------------------------------------------------ data
 
-    const PLUGIN_VERSION = "3.14.0";
+    const PLUGIN_VERSION = "3.14.1";
 
     let TRACKS = [];
     let LESSONS = [];

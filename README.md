@@ -6,7 +6,6 @@ exercises, quizzes, quickbytes, production checklists, reference architectures a
 verified links to docs, GitHub repos, papers and conference talks.
 
 <p align="center">
-  <a href="https://github.com/ramanasai/dsh-rust-academy/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ramanasai/dsh-rust-academy/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://github.com/ramanasai/dsh-rust-academy/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/ramanasai/dsh-rust-academy"></a>
   <a href="https://github.com/ramanasai/dsh-rust-academy/blob/main/LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue"></a>
 </p>
@@ -201,8 +200,6 @@ Each chapter supports: `id`, `title`, `minutes`, `level`, `goal`, `sections[]`
 | `scripts/compiler-gate.mjs` | Compiler gate: rustfmt parse + rustc compile of snippets |
 | `scripts/audit-content.mjs` | Online audit: URLs, GitHub repos, crate names, structure |
 | `docs/content-audit.md` | Latest per-chapter audit report |
-| `.github/workflows/ci.yml` | CI: build, validate 32 tracks, compiler gate, offline audit, artifact freshness |
-| `.github/workflows/release.yml` | Tag `v*` → build + GitHub release with generated notes |
 | `.snippet-baseline.json` | Known context-dependent snippets accepted by the gate |
 | `locale/en.json` | Plugin Manager title and description |
 | `icon.svg` | Original crab artwork |
