@@ -20,6 +20,7 @@ window.__ModuleLoader__.load({
     const NS = 'rust-academy';
     const PROGRESS_KEY = 'dsh.rust-academy.progress.v1';
     const LAST_KEY = 'dsh.rust-academy.last.v1';
+    const QUIZ_KEY = 'dsh.rust-academy.quiz.v1';
 
     // ------------------------------------------------------------------ i18n
 
@@ -74,6 +75,9 @@ window.__ModuleLoader__.load({
       'bp.resources': 'References',
       'track.done': '{done}/{total} done',
       'lesson.questions': 'Check yourself',
+      'questions.score': '{correct}/{total} correct',
+      'shortcut.prev': 'Previous chapter (←)',
+      'shortcut.next': 'Next chapter (→)',
       'lesson.quickbytes': 'Quick bytes',
       'lesson.github': 'GitHub',
       'resource.docs': 'Docs',
@@ -330,30 +334,55 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function Questions({ questions }) {
-      const [picked, setPicked] = useState({});
+    function Questions({ lessonId, questions }) {
+      const [picked, setPicked] = useState(() => {
+        const all = readJson(QUIZ_KEY, {});
+        const saved = all && all[lessonId];
+        return saved && typeof saved === 'object' ? saved : {};
+      });
+      const answered = Object.keys(picked).length;
+      const correct = questions.reduce((total, question, index) => (
+        picked[index] === question.answer ? total + 1 : total
+      ), 0);
+
+      function choose(questionIndex, optionIndex) {
+        setPicked((current) => {
+          const next = Object.assign({}, current, { [questionIndex]: optionIndex });
+          const all = readJson(QUIZ_KEY, {});
+          all[lessonId] = next;
+          writeJson(QUIZ_KEY, all);
+          return next;
+        });
+      }
+
       return h('section', { className: 'ra-questions' },
-        h('h3', null, t('lesson.questions')),
+        h('div', { className: 'ra-questions-head' },
+          h('h3', null, t('lesson.questions')),
+          answered > 0
+            ? h('span', { className: 'ra-quiz-score' },
+                t('questions.score', { correct, total: questions.length }))
+            : null
+        ),
         questions.map((question, index) => {
           const choice = picked[index];
-          const answered = choice !== undefined;
+          const isAnswered = choice !== undefined;
           return h('div', { className: 'ra-question', key: index },
             h('p', { className: 'ra-question-q' }, (index + 1) + '. ' + question.q),
             h('div', { className: 'ra-options' }, question.options.map((option, optionIndex) => {
               const selected = choice === optionIndex;
-              const correct = optionIndex === question.answer;
+              const isCorrect = optionIndex === question.answer;
               let className = 'ra-option';
-              if (answered && selected) className += ' is-selected ' + (correct ? 'is-correct' : 'is-wrong');
-              else if (answered && correct) className += ' is-selected is-correct';
+              if (isAnswered && selected) className += ' is-selected ' + (isCorrect ? 'is-correct' : 'is-wrong');
+              else if (isAnswered && isCorrect) className += ' is-selected is-correct';
               return h('button', {
                 type: 'button',
                 key: optionIndex,
                 className,
-                disabled: answered,
-                onClick: () => setPicked((current) => Object.assign({}, current, { [index]: optionIndex })),
+                disabled: isAnswered,
+                onClick: () => choose(index, optionIndex),
               }, option);
             })),
-            answered
+            isAnswered
               ? h('p', { className: 'ra-question-explain' },
                   (choice === question.answer ? '✓ ' : '✕ ') + question.explain)
               : null
@@ -501,7 +530,7 @@ window.__ModuleLoader__.load({
             solutionOpen ? h(CodeBlock, { code: exercise.solution, lang: 'rust', caption: t('exercise.solution'), onCopy }) : null
           ),
           lesson.questions && lesson.questions.length
-            ? h(Questions, { key: lesson.id, questions: lesson.questions })
+            ? h(Questions, { key: lesson.id, lessonId: lesson.id, questions: lesson.questions })
             : null,
           lesson.quickbytes && lesson.quickbytes.length
             ? h(Quickbytes, { items: lesson.quickbytes })
@@ -514,9 +543,9 @@ window.__ModuleLoader__.load({
           h(ResourceList, { resources: lesson.resources }),
           atTrackEnd ? h(TrackProject, { project: track.project }) : null,
           h('div', { className: 'ra-lesson-foot' },
-            prev ? h('button', { type: 'button', className: 'ra-ghost', onClick: () => onPrev(prev.id) }, '← ' + t('lesson.prev')) : null,
+            prev ? h('button', { type: 'button', className: 'ra-ghost', title: t('shortcut.prev'), onClick: () => onPrev(prev.id) }, '← ' + t('lesson.prev')) : null,
             h('span', { className: 'ra-spacer' }),
-            next ? h('button', { type: 'button', className: 'ra-primary', onClick: () => onNext(next.id) }, t('lesson.next') + ' →') : null
+            next ? h('button', { type: 'button', className: 'ra-primary', title: t('shortcut.next'), onClick: () => onNext(next.id) }, t('lesson.next') + ' →') : null
           )
         )
       );
@@ -630,6 +659,23 @@ window.__ModuleLoader__.load({
       const previous = lesson.n > 1 ? LESSONS[lesson.n - 2] : null;
       const following = lesson.n < TOTAL ? LESSONS[lesson.n] : null;
 
+      useEffect(() => {
+        if (tab !== 'course') return undefined;
+        function onKeyDown(event) {
+          const target = event.target;
+          if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
+          if (event.key === 'ArrowRight' && following) {
+            event.preventDefault();
+            selectLesson(following.id);
+          } else if (event.key === 'ArrowLeft' && previous) {
+            event.preventDefault();
+            selectLesson(previous.id);
+          }
+        }
+        window.addEventListener('keydown', onKeyDown);
+        return () => window.removeEventListener('keydown', onKeyDown);
+      }, [tab, lesson.id]);
+
       function flash(message) { setToast(message); }
 
       function copy(text) {
@@ -723,6 +769,7 @@ window.__ModuleLoader__.load({
           ? h('div', { className: 'ra-body' + (focus ? ' is-focus' : '') },
               h(LessonNav, { selectedId, done, query, onSelect: selectLesson }),
               h(Article, {
+                key: lesson.id,
                 lesson,
                 done: !!done[lesson.id],
                 onToggleDone: toggleDone,
@@ -887,7 +934,9 @@ window.__ModuleLoader__.load({
 .ra-github{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:12px 0;}
 .ra-github-label{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--dsw-alias-label-secondary);}
 .ra-questions{margin:22px 0;padding:16px 18px;border:1px solid var(--dsw-alias-border-l1);border-radius:12px;background:var(--dsw-alias-bg-layer-1);}
-.ra-questions h3{margin:0 0 10px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--dsw-alias-brand-primary);}
+.ra-questions-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 0 10px;}
+.ra-questions h3{margin:0;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--dsw-alias-brand-primary);}
+.ra-quiz-score{font-size:11px;color:var(--dsw-alias-state-success-primary);font-variant-numeric:tabular-nums;}
 .ra-question{margin:0 0 14px;}
 .ra-question:last-child{margin-bottom:0;}
 .ra-question-q{margin:0 0 6px;font-size:13px;}

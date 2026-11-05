@@ -1569,5 +1569,3264 @@ pub async fn spawn_limited(
         },
       ],
     },
+    {
+      id: "p08",
+      title: "Container entrypoints and PID 1",
+      minutes: 55,
+      level: "core",
+      goal: "Pick an exec-form entrypoint, explain why PID 1 discards an unhandled SIGTERM, and return an exit status the runtime can classify.",
+      sections: [
+        {
+          h: "Exec form, shell form, and who gets the signal",
+          p: [
+            "Dockerfile ENTRYPOINT and CMD have two forms. The exec form is a JSON array and runs the binary directly, so that binary becomes PID 1 in the container's PID namespace. The shell form is a plain string and runs /bin/sh -c with your command as an argument, so the shell is PID 1 and your process is its child.",
+            "Whether that matters depends on one detail: does the shell exec the command or fork it? A single simple command is often exec'd as an optimisation, so signals still arrive. Add &&, a pipe, a redirection, or a variable assignment and the shell keeps running, waits for the child, and does not forward SIGTERM. The container then takes the full grace period and is SIGKILLed.",
+          ],
+          code: `# Shell form: /bin/sh -c "./migrate && ./server" becomes PID 1.
+# The shell stays alive because of &&, so SIGTERM never reaches the server.
+FROM debian:bookworm-slim
+CMD ./migrate && ./server
+
+# Exec form: the binary itself is PID 1 and receives SIGTERM directly.
+FROM debian:bookworm-slim
+ENTRYPOINT ["/usr/local/bin/server"]
+
+# If you genuinely need a shell, exec the final command explicitly.
+# ENTRYPOINT ["/bin/sh", "-c", "exec /usr/local/bin/server"]`,
+          tip: "Check the running container with `docker exec <id> ps -o pid,ppid,comm`. If PID 1 is sh, you have a signal-forwarding problem regardless of what the Dockerfile looks like.",
+        },
+        {
+          h: "PID 1 is not a normal process",
+          p: [
+            "Inside a PID namespace the first process is the namespace init, and the kernel treats signals to it differently. A signal sent by another process in the namespace is delivered only if init has installed a handler for it. SIGKILL and SIGSTOP from an ancestor namespace are the exceptions and are always delivered.",
+            "The practical consequence: a Rust binary with no signal handler dies from SIGTERM on your laptop and ignores it as PID 1 in a container. This is not Docker being broken; it is the kernel protecting the namespace init. Install the handler at the top of main, before any worker or listener exists, so a stop signal during boot still runs cleanup.",
+          ],
+          code: `use std::process::ExitCode;
+use std::time::Duration;
+use tokio::signal::unix::{signal, SignalKind};
+
+#[tokio::main]
+async fn main() -> ExitCode {
+    // Install before spawning anything: an unhandled SIGTERM is discarded
+    // for the init process of a PID namespace, so the container would wait
+    // out the full grace period and then be SIGKILLed.
+    let mut term = signal(SignalKind::terminate()).expect("SIGTERM handler");
+    let mut int = signal(SignalKind::interrupt()).expect("SIGINT handler");
+
+    tokio::select! {
+        _ = term.recv() => tracing::info!("received SIGTERM"),
+        _ = int.recv() => tracing::info!("received SIGINT"),
+    }
+
+    let drained = tokio::time::timeout(Duration::from_secs(20), drain())
+        .await
+        .is_ok();
+
+    if drained {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    }
+}
+
+async fn drain() {
+    // stop admission, cancel workers, join them, flush telemetry
+}`,
+          tip: "If you cannot add signal handling, run a real init as PID 1: tini or dumb-init forwards signals and reaps orphans for you.",
+        },
+        {
+          h: "Exit codes are part of the contract",
+          p: [
+            "Orchestrators and CI read the exit status, so make it mean something. Zero is a requested, clean stop. One is your own failure. 143 is 128 plus SIGTERM, meaning the process was terminated by the signal rather than exiting; 137 is 128 plus SIGKILL, which is what a grace-period expiry or a cgroup OOM kill produces.",
+            "A process that catches SIGTERM and returns zero has told the runtime the stop was clean, and the runtime will record it as completed rather than failed. That is honest only if the drain actually finished. If the deadline expired with jobs still running, exit nonzero and log the count; a deploy that silently drops work is worse than a noisy one.",
+          ],
+          list: [
+            "0: requested stop, all admitted work finished",
+            "1: drain deadline exceeded, or an unrecoverable startup error",
+            "143: the process never handled SIGTERM and was terminated by it",
+            "137: SIGKILL, typically grace-period expiry or the cgroup OOM killer",
+          ],
+          tip: "docker stop sends SIGTERM and then SIGKILL after 10 seconds by default. Set STOPSIGNAL or the stop timeout if your drain needs longer, and keep the drain budget below it.",
+        },
+      ],
+      exercise: {
+        prompt:
+          "Implement stop_reason, which waits for SIGTERM or SIGINT and reports which arrived, and exit_code, which maps the signal plus whether the drain finished to 0, 130, or 143. A timed-out drain must not be reported as a clean stop.",
+        starter: `use std::process::ExitCode;
+use tokio::signal::unix::{signal, SignalKind};
+
+#[derive(Debug, PartialEq)]
+pub enum Stop {
+    Term,
+    Int,
+}
+
+// TODO: race the two signal streams; return the one that fired first.
+pub async fn stop_reason() -> Stop {
+    let _ = signal(SignalKind::terminate());
+    Stop::Term
+}
+
+// TODO: a finished drain is 0; otherwise 128 + the signal number.
+pub fn exit_code(stop: &Stop, drained: bool) -> ExitCode {
+    let _ = (stop, drained);
+    ExitCode::SUCCESS
+}`,
+        hint: "Create both streams with signal(SignalKind::terminate()) and signal(SignalKind::interrupt()), then tokio::select! on term.recv() and int.recv(). Signal numbers are 15 and 2, so the fallback codes are 143 and 130.",
+        solution: `use std::process::ExitCode;
+use tokio::signal::unix::{signal, SignalKind};
+
+#[derive(Debug, PartialEq)]
+pub enum Stop {
+    Term,
+    Int,
+}
+
+pub async fn stop_reason() -> Stop {
+    let mut term = signal(SignalKind::terminate()).expect("SIGTERM handler");
+    let mut int = signal(SignalKind::interrupt()).expect("SIGINT handler");
+
+    tokio::select! {
+        _ = term.recv() => Stop::Term,
+        _ = int.recv() => Stop::Int,
+    }
+}
+
+pub fn exit_code(stop: &Stop, drained: bool) -> ExitCode {
+    match (stop, drained) {
+        (_, true) => ExitCode::SUCCESS,
+        (Stop::Term, false) => ExitCode::from(143),
+        (Stop::Int, false) => ExitCode::from(130),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_forced_stop_is_not_success() {
+        assert_eq!(exit_code(&Stop::Term, true), ExitCode::SUCCESS);
+        assert_eq!(exit_code(&Stop::Term, false), ExitCode::from(143));
+        assert_eq!(exit_code(&Stop::Int, false), ExitCode::from(130));
+    }
+}`,
+      },
+      production: [
+        "The container runs one process as PID 1, in exec form, with no shell in between.",
+        "The signal handler is installed before migrations, listeners, or worker pools start.",
+        "The drain budget is shorter than the platform stop timeout, and the gap is logged at boot.",
+        "A test asserts that SIGTERM during boot still exits through the cleanup path.",
+        "Exit codes distinguish a clean stop from a timed-out drain in dashboards and CI.",
+      ],
+      crates: ["tokio", "tracing", "anyhow"],
+      github: [
+        { name: "krallin/tini - a tiny init for containers", url: "https://github.com/krallin/tini" },
+        { name: "Yelp/dumb-init - minimal init system for Linux containers", url: "https://github.com/Yelp/dumb-init" },
+      ],
+      pitfall:
+        "Using the shell form with `&&` to run a migration before the server: the shell stays PID 1, never forwards SIGTERM, and every deploy waits out the grace period before SIGKILL.",
+      questions: [
+        {
+          q: "A container uses ENTRYPOINT [\"sh\", \"-c\", \"migrate && ./server\"]. The runtime sends SIGTERM to PID 1. What does the server see?",
+          options: [
+            "SIGTERM, because the shell forwards it to its child by default",
+            "Nothing, because the shell is PID 1, stays alive for &&, and does not forward the signal",
+            "SIGKILL, because the shell converts SIGTERM for its children",
+            "SIGTERM, but only after the shell finishes waiting for the child",
+          ],
+          answer: 1,
+          explain: "A shell that forks a child and waits does not forward SIGTERM. The shell dies at the grace-period SIGKILL and the server is killed with it, so in-flight work is dropped.",
+        },
+        {
+          q: "A Rust service ignores SIGTERM as container PID 1 but exits correctly when run directly on a VM. Why?",
+          options: [
+            "Docker masks SIGTERM for containers by design",
+            "The kernel only delivers namespace-init signals that init has a handler for, apart from SIGKILL and SIGSTOP",
+            "Tokio installs a SIGTERM handler on a VM and removes it in containers",
+            "The process is not in the same cgroup as the signal sender",
+          ],
+          answer: 1,
+          explain: "pid_namespaces(7): signals from inside the namespace are delivered to the init process only if it installed a handler. Unhandled SIGTERM is discarded, so the runtime waits out the grace period.",
+        },
+        {
+          q: "A worker exits with code 137 after a deploy. What is the most likely cause?",
+          options: [
+            "The application returned 137 from main",
+            "The process was SIGKILLed, for example by a grace-period expiry or the cgroup OOM killer",
+            "The drain deadline was reached and the process exited cleanly",
+            "The runtime could not find the binary",
+          ],
+          answer: 1,
+          explain: "137 is 128 + 9, the shell convention for death by SIGKILL. A cgroup OOM kill and a grace-period expiry both look like this, which is why the cgroup memory.events counter matters.",
+        },
+      ],
+      quickbytes: [
+        "Use the exec form, or `exec` the final command inside any shell wrapper.",
+        "Install the signal handler first, before migrations and listeners.",
+        "143 means the process never handled SIGTERM; treat it as a bug, not a clean stop.",
+      ],
+      resources: [
+        {
+          title: "Dockerfile reference: ENTRYPOINT, CMD, and STOPSIGNAL",
+          url: "https://docs.docker.com/reference/dockerfile/",
+          kind: "docs",
+        },
+        {
+          title: "pid_namespaces(7): init, signals, and orphan reparenting",
+          url: "https://man7.org/linux/man-pages/man7/pid_namespaces.7.html",
+          kind: "docs",
+        },
+        {
+          title: "tini: signal forwarding and zombie reaping for containers",
+          url: "https://github.com/krallin/tini",
+          kind: "repo",
+        },
+        {
+          title: "CNCF channel: container runtime and Kubernetes internals talks",
+          url: "https://www.youtube.com/@CNCF",
+          kind: "video",
+        },
+      ],
+    },
+    {
+      id: "p09",
+      title: "Reaping orphans and subreapers",
+      minutes: 60,
+      level: "advanced",
+      goal: "Keep a container's process table clean: reap reparented descendants with waitpid, and become a subreaper when your process is not PID 1.",
+      sections: [
+        {
+          h: "Orphans land on PID 1",
+          p: [
+            "A child that exits stays a zombie until its parent waits for it, holding a pid and a process-table slot. When the parent dies first, the kernel reparents the surviving child to the init process of the PID namespace, which in a container is whatever runs as PID 1.",
+            "If that process never calls waitpid, every orphan accumulates. With pids.max set, fork eventually fails with EAGAIN and the symptom is bizarre: threads that spawn helper processes stop working, but the process itself looks healthy. Counting zombies is part of monitoring a container, not an afterthought.",
+          ],
+          code: `# Count zombies inside the container's PID namespace.
+ps -eo stat,pid,ppid,comm | awk '$1 ~ /^Z/ { print }'
+
+# The process-tree view that makes reparenting visible.
+ps -eo pid,ppid,stat,comm --forest | head -40
+
+# The limit they will eventually hit.
+cat /sys/fs/cgroup/pids.max
+cat /sys/fs/cgroup/pids.current
+
+# Seccomp and signal masks are per-process facts worth having on hand.
+grep -E 'Seccomp|SigCgt' /proc/1/status`,
+          tip: "A single zombie is normal between exit and wait. A growing count is a missing waitpid, and a count at pids.current near pids.max is an outage waiting for the next fork.",
+        },
+        {
+          h: "waitpid(-1) is the reaper loop",
+          p: [
+            "waitpid with a None pid asks the kernel for any child that changed state, and WNOHANG makes it non-blocking. Loop until it returns StillAlive, which means children exist but none has exited, or ECHILD, which means you have no children at all and reparenting is now somebody else's problem.",
+            "The hard part is ownership. If your app spawns through tokio::process and also runs a manual waitpid(-1), the manual reaper can consume a child tokio is waiting for, and Child::wait then returns an error. Pick one reaper per process: either tokio owns every child, or a dedicated init shim owns every child and your app does not exist in that namespace.",
+          ],
+          code: `use nix::errno::Errno;
+use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
+use std::time::Duration;
+
+/// Reap every child that has already exited, without blocking.
+pub fn reap_ready() -> usize {
+    let mut reaped = 0;
+    loop {
+        match waitpid(None, Some(WaitPidFlag::WNOHANG)) {
+            Ok(WaitStatus::StillAlive) => break, // children exist, none exited
+            Ok(status) => {
+                tracing::info!(?status, "reaped a descendant");
+                reaped += 1;
+            }
+            Err(Errno::ECHILD) => break, // nothing to wait for; stop polling
+            Err(err) => {
+                tracing::warn!(%err, "waitpid failed");
+                break;
+            }
+        }
+    }
+    reaped
+}
+
+pub async fn reaper_loop() {
+    loop {
+        reap_ready();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}`,
+          tip: "A 100 ms poll is a deliberate simplification. A SIGCHLD handler with a self-pipe wakes you exactly once per exit; polling costs an idle wakeup per tick per container.",
+        },
+        {
+          h: "Become a subreaper when you are not PID 1",
+          p: [
+            "PR_SET_CHILD_SUBREAPER marks the calling process as the reaper for orphaned descendants, even if it is not the namespace init. A job runner that double-forks helpers, or a build agent whose compilers spawn linkers, uses it so orphans stop at the runner instead of disappearing up to the host init.",
+            "The attribute is per-process: set it once at startup, before spawning anything, and be aware that children do not inherit it. It is Linux-only, so gate it with cfg(target_os = \"linux\") and let other platforms fall back to normal init behaviour.",
+          ],
+          code: `#[cfg(target_os = "linux")]
+pub fn become_subreaper() -> nix::Result<()> {
+    use nix::sys::prctl::set_child_subreaper;
+    // Orphans of our descendants are reparented to us, not to host init.
+    set_child_subreaper(true)
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn become_subreaper() -> nix::Result<()> {
+    Ok(()) // init already reaps on macOS and BSD
+}`,
+          tip: "A subreaper that does not reap is worse than no subreaper: it collects every orphan and turns them into zombies it never collects.",
+        },
+        {
+          h: "Prove it with a forking child",
+          p: [
+            "The bug is invisible in code review and obvious in a test. Spawn a shell that backgrounds a sleep and exits immediately: the sleep is reparented to your process, and after it finishes a zombie should appear unless the reaper runs.",
+            "Assert on /proc/<pid>/status or on a zombie count from ps, then call the reaper and assert the count drops to zero. Set PR_SET_CHILD_SUBREAPER in the test, or run it in a PID namespace: otherwise the orphan is adopted by the host init and your reaper never sees it, so the test passes without testing anything.",
+          ],
+          list: [
+            "Test the reaper with a child that forks and exits before its grandchild",
+            "Assert no zombie remains after one reaper tick, not after an arbitrary sleep",
+            "Run the test in a container so reparenting targets your PID 1",
+            "Export a zombie-count gauge and alert when it is above zero for a minute",
+          ],
+          tip: "A test that passes on a laptop and fails in CI is usually adoption: on the host, init reaps the orphan before your code sees it.",
+        },
+      ],
+      exercise: {
+        prompt:
+          "Implement reap_ready, which drains every already-exited child with waitpid(WNOHANG) and returns the count, stopping on StillAlive or ECHILD. Add a test using a shell that backgrounds a sleep and exits.",
+        starter: `use nix::errno::Errno;
+use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
+
+// TODO: loop on waitpid(None, Some(WNOHANG)); count Ok(non-StillAlive),
+// break on StillAlive and on ECHILD.
+pub fn reap_ready() -> usize {
+    0
+}
+
+fn main() {
+    let _ = (Errno::ECHILD, WaitStatus::StillAlive, WaitPidFlag::WNOHANG);
+    println!("reaped {}", reap_ready());
+}`,
+        hint: "Match Ok(WaitStatus::StillAlive) and Err(Errno::ECHILD) to break, Ok(other) to count, and any other Err to log and break. The loop must terminate when no exited child remains.",
+        solution: `use nix::errno::Errno;
+use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
+
+pub fn reap_ready() -> usize {
+    let mut reaped = 0usize;
+    loop {
+        match waitpid(None, Some(WaitPidFlag::WNOHANG)) {
+            Ok(WaitStatus::StillAlive) => break,
+            Ok(status) => {
+                eprintln!("reaped: {status:?}");
+                reaped += 1;
+            }
+            Err(Errno::ECHILD) => break,
+            Err(err) => {
+                eprintln!("waitpid: {err}");
+                break;
+            }
+        }
+    }
+    reaped
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn reaps_a_reparented_grandchild() {
+        // Without this the orphan is adopted by host init, not by us.
+        nix::sys::prctl::set_child_subreaper(true).expect("subreaper");
+
+        // The shell exits immediately; sleep is reparented to this process.
+        let mut child = std::process::Command::new("sh")
+            .arg("-c")
+            .arg("sleep 0.05 & exit 0")
+            .spawn()
+            .expect("spawn sh");
+        child.wait().expect("wait for sh");
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        assert!(reap_ready() >= 1, "expected to reap the reparented sleep");
+    }
+}`,
+      },
+      production: [
+        "Exactly one component in the process tree is allowed to call waitpid; it is named in the architecture doc.",
+        "A zombie-count gauge is exported and alerts when it stays above zero.",
+        "pids.max is set for every workload, so a fork leak fails fast instead of exhausting the host.",
+        "Subreaper mode is set once at startup on Linux and covered by a forking test.",
+        "The init shim, if used, does nothing but forward signals and reap; no business logic lives there.",
+      ],
+      crates: ["nix", "tokio", "tracing"],
+      github: [
+        { name: "containers/conmon - OCI container runtime monitor", url: "https://github.com/containers/conmon" },
+        { name: "krallin/tini - a tiny init for containers", url: "https://github.com/krallin/tini" },
+      ],
+      pitfall:
+        "Calling waitpid(-1) in a process that also uses tokio::process::Child::wait: the manual reaper steals the child, and tokio's wait returns ECHILD, which surfaces as a random spawn failure.",
+      questions: [
+        {
+          q: "waitpid(None, WNOHANG) returns Ok(WaitStatus::StillAlive). What does that mean?",
+          options: [
+            "There are no children left to wait for",
+            "Children exist but none has changed state since the last check",
+            "The call was interrupted and should be retried immediately",
+            "The child was stopped and will be resumed",
+          ],
+          answer: 1,
+          explain: "StillAlive means waitable children exist but none has exited. ECHILD is the no-children case, and that distinction is what makes the non-blocking drain loop terminate correctly.",
+        },
+        {
+          q: "What happens to a container's process table when the PID 1 process exits?",
+          options: [
+            "The remaining processes are reparented to the host init and keep running",
+            "The kernel SIGKILLs every remaining process in the namespace",
+            "The namespace stays alive until the last process exits",
+            "The processes are frozen until a new PID 1 attaches",
+          ],
+          answer: 1,
+          explain: "pid_namespaces(7): terminating the namespace init terminates all processes in the namespace with SIGKILL, and later forks into it fail with ENOMEM.",
+        },
+        {
+          q: "You set PR_SET_CHILD_SUBREAPER on your job runner. Which statement is true?",
+          options: [
+            "Every child of the runner is automatically a subreaper too",
+            "Orphaned descendants are reparented to the runner, which must then reap them",
+            "It prevents the kernel from creating zombies at all",
+            "It only works when the runner is PID 1 in its namespace",
+          ],
+          answer: 1,
+          explain: "Subreaper changes where orphans are reparented, not whether they become zombies. The runner inherits the responsibility to waitpid them, which is why the reaper loop is mandatory.",
+        },
+      ],
+      quickbytes: [
+        "One waiter per process tree: either tokio::process owns every child or a dedicated init shim does.",
+        "ECHILD means stop polling; StillAlive means keep polling later.",
+        "Set PR_SET_CHILD_SUBREAPER before the first spawn, and reap in the same binary.",
+      ],
+      resources: [
+        {
+          title: "pid_namespaces(7): init, orphan adoption, and subreapers",
+          url: "https://man7.org/linux/man-pages/man7/pid_namespaces.7.html",
+          kind: "docs",
+        },
+        {
+          title: "nix::sys::wait::waitpid",
+          url: "https://docs.rs/nix/latest/nix/sys/wait/fn.waitpid.html",
+          kind: "docs",
+        },
+        {
+          title: "nix::sys::prctl::set_child_subreaper",
+          url: "https://docs.rs/nix/latest/nix/sys/prctl/fn.set_child_subreaper.html",
+          kind: "docs",
+        },
+        {
+          title: "Yelp/dumb-init - signal forwarding plus reaping, in one small binary",
+          url: "https://github.com/Yelp/dumb-init",
+          kind: "repo",
+        },
+      ],
+    },
+    {
+      id: "p10",
+      title: "Process supervisors and restart policy",
+      minutes: 70,
+      level: "advanced",
+      goal: "Restart a crashed child without turning one bad config into a restart storm: classify the exit, back off, cap attempts, and stop the whole tree.",
+      sections: [
+        {
+          h: "Read the exit status before restarting",
+          p: [
+            "A supervisor needs three facts from wait: did it exit, with what code, or was it signalled. Exit code zero from a one-shot job means done, not crash. A signal means somebody killed it, which during shutdown is expected and must not count as a failure. Code 127 means the binary was not found, and no amount of restarting will fix that.",
+            "The policy follows from those cases. Restart only failures, treat a clean exit as terminal for one-shot work, and treat a signal received during our own shutdown as termination rather than a crash. This is the same mistake lesson p02 warned about for tasks, one layer down at the operating system.",
+          ],
+          code: `use std::process::ExitStatus;
+
+#[derive(Debug, PartialEq)]
+pub enum Action {
+    Done,
+    Restart,
+    GiveUp,
+    Stop,
+}
+
+pub fn decide(status: ExitStatus, failures: u32, max_failures: u32) -> Action {
+    if status.success() {
+        return Action::Done; // one-shot work finished; nothing to restart
+    }
+    if failures >= max_failures {
+        return Action::GiveUp; // bad config, missing binary, port taken
+    }
+    // code() is None when the child died from a signal; a signal during our
+    // own shutdown is a stop, not a crash to restart.
+    match status.code() {
+        Some(127) | Some(126) => Action::GiveUp,
+        _ => Action::Restart,
+    }
+}`,
+          tip: "Log the raw status as well as your classification. A crash loop that is really exit 127 looks identical to a panic until you print the code.",
+        },
+        {
+          h: "Backoff, jitter, and a window",
+          p: [
+            "Immediate restarts are how a dependency outage becomes a self-inflicted DDoS: every replica retries at once, the recovering service falls over, and the loop continues. Exponential backoff with a cap and jitter spreads retries, and a stability window resets the attempt counter only after the child has run long enough to be considered healthy. Docker doubles its restart delay on each attempt; Kubernetes computes CrashLoopBackOff; systemd counts starts against a time window.",
+            "Every supervisor has a budget, whether it admits it or not. systemd's StartLimitBurst and StartLimitIntervalSec express it, Docker's restart policy has no backoff beyond a doubling delay, and Kubernetes computes CrashLoopBackOff. Your own supervisor should expose the same three numbers: max failures, the window they count in, and the longest delay.",
+          ],
+          code: `use std::time::{Duration, Instant};
+
+pub struct Policy {
+    pub max_failures: u32,
+    pub window: Duration,
+    pub base: Duration,
+    pub cap: Duration,
+    pub stable_after: Duration,
+}
+
+pub fn backoff(policy: &Policy, failures: u32) -> Duration {
+    let exp = policy.base.saturating_mul(1u32 << failures.min(10));
+    let capped = exp.min(policy.cap);
+    // Deterministic jitter for the example; use rand in production.
+    let jitter = capped / 10 * (failures % 3);
+    (capped + jitter).min(policy.cap)
+}
+
+impl Policy {
+    /// Reset the failure counter only after a run proves itself stable.
+    pub fn record_run(&self, started: Instant, failures: &mut u32) {
+        if started.elapsed() >= self.stable_after {
+            *failures = 0;
+        }
+    }
+}`,
+          tip: "Reset on stable uptime, not on successful spawn. A process that starts and dies in 50 ms would otherwise reset its own counter on every attempt.",
+        },
+        {
+          h: "Stop the tree, then restart",
+          p: [
+            "Killing only the direct child leaves its grandchildren alive. A wrapper script, a compiler, or a server that re-execs itself will keep the listening port, and the restart fails with EADDRINUSE while the orphan keeps serving stale code. That is why every child of a supervisor gets its own process group, and why the restart path kills the group and waits.",
+            "Order matters on the way back up too: kill the group, wait for the direct child (so the pid is released), apply the backoff, then spawn. And on shutdown, stop the supervisor first, so it cannot spawn one more child while you are draining.",
+          ],
+          code: `use std::process::Stdio;
+use std::time::Duration;
+use tokio::process::Command;
+use tokio_util::sync::CancellationToken;
+
+pub async fn supervise(mut argv: Vec<String>, token: CancellationToken) -> std::io::Result<()> {
+    loop {
+        let mut cmd = Command::new(&argv[0]);
+        cmd.args(&argv[1..])
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .kill_on_drop(true);
+        #[cfg(unix)]
+        cmd.process_group(0); // the child leads its own group
+
+        let mut child = cmd.spawn()?;
+        tokio::select! {
+            _ = token.cancelled() => {
+                // Signal the whole group, then reap before returning.
+                #[cfg(unix)]
+                if let Some(pid) = child.id() {
+                    let _ = nix::sys::signal::killpg(
+                        nix::unistd::Pid::from_raw(pid as i32),
+                        nix::sys::signal::Signal::SIGTERM,
+                    );
+                }
+                let _ = child.wait().await;
+                return Ok(());
+            }
+            status = child.wait() => {
+                tracing::warn!(?status, "supervised child exited");
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+        }
+    }
+}`,
+          tip: "If a restart fails with EADDRINUSE, you did not kill the tree. Check for a surviving grandchild before adding a retry loop around bind.",
+        },
+        {
+          h: "Who supervises the supervisor?",
+          p: [
+            "Two supervisors on the same child is worse than none: one restarts while the other is draining, and the child gets two SIGTERMs with different expectations. Decide the layer once. Under systemd or Kubernetes, the platform owns restarts and your binary should only supervise children it spawned itself, such as sidecars or job workers.",
+            "A supervisor should also be observable: restart count, last exit code, time since last successful start, and whether it is currently in backoff. Without those, the only signal is a container that keeps appearing in the restart list, and an operator has to guess which child is at fault.",
+          ],
+          list: [
+            "One restart owner per process; the platform or your loop, never both",
+            "Restart counter and last exit status exported as metrics, not just logs",
+            "Backoff state visible in the health endpoint so a crash loop is not reported healthy",
+            "Give-up is terminal and alertable; it must not silently leave a half-serving process",
+          ],
+          tip: "When the platform restarts the container anyway, a give-up supervisor still loses. Give up loudly: exit nonzero with one clear log line and let the platform's backoff take over.",
+        },
+      ],
+      exercise: {
+        prompt:
+          "Implement decide(status, failures, max) returning Done for a clean exit, GiveUp at the failure cap or for 126/127, and Restart otherwise; and backoff(failures) with exponential growth capped at 30 seconds. Add tests for both.",
+        starter: `use std::process::ExitStatus;
+use std::time::Duration;
+
+#[derive(Debug, PartialEq)]
+pub enum Action {
+    Done,
+    Restart,
+    GiveUp,
+}
+
+pub fn decide(_status: ExitStatus, _failures: u32, _max: u32) -> Action {
+    Action::Restart
+}
+
+pub fn backoff(_failures: u32) -> Duration {
+    Duration::ZERO
+}
+
+fn main() {
+    let status = std::process::Command::new("true").status().unwrap();
+    println!("{:?} {:?}", decide(status, 0, 5), backoff(3));
+}`,
+        hint: "status.success() is the clean-exit case; status.code() is None for a signalled child. For backoff use 100ms << failures with a cap, and saturate the shift so a large counter cannot panic.",
+        solution: `use std::process::ExitStatus;
+use std::time::Duration;
+
+#[derive(Debug, PartialEq)]
+pub enum Action {
+    Done,
+    Restart,
+    GiveUp,
+}
+
+pub fn decide(status: ExitStatus, failures: u32, max: u32) -> Action {
+    if status.success() {
+        return Action::Done;
+    }
+    if failures >= max {
+        return Action::GiveUp;
+    }
+    match status.code() {
+        Some(127) | Some(126) => Action::GiveUp,
+        _ => Action::Restart,
+    }
+}
+
+pub fn backoff(failures: u32) -> Duration {
+    let step = Duration::from_millis(100) << failures.min(9);
+    step.min(Duration::from_secs(30))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn status(code: i32) -> ExitStatus {
+        std::process::Command::new("sh")
+            .arg("-c")
+            .arg(format!("exit {code}"))
+            .status()
+            .expect("run sh")
+    }
+
+    #[test]
+    fn classifies_exit_codes() {
+        assert_eq!(decide(status(0), 0, 5), Action::Done);
+        assert_eq!(decide(status(127), 0, 5), Action::GiveUp);
+        assert_eq!(decide(status(1), 0, 5), Action::Restart);
+        assert_eq!(decide(status(1), 5, 5), Action::GiveUp);
+    }
+
+    #[test]
+    fn backoff_is_capped_and_monotonic() {
+        assert_eq!(backoff(0), Duration::from_millis(100));
+        assert!(backoff(3) > backoff(2));
+        assert_eq!(backoff(30), Duration::from_secs(30));
+    }
+}`,
+      },
+      production: [
+        "Restart policy is named per workload: on-failure, always, or never, with the exit codes it treats as failure.",
+        "Backoff has a cap, jitter, and a stability window that resets the failure counter.",
+        "Every supervised child runs in its own process group and is killed as a group before restart.",
+        "Restart count, last exit code, and time in backoff are exported metrics.",
+        "Only one layer supervises a given process; the platform or the application, never both.",
+      ],
+      crates: ["tokio", "tokio-util", "nix", "tracing"],
+      github: [
+        { name: "containers/conmon - the monitor behind podman and CRI-O", url: "https://github.com/containers/conmon" },
+        { name: "krallin/tini - init and signal forwarding for containers", url: "https://github.com/krallin/tini" },
+      ],
+      pitfall:
+        "Restarting a child that spawns grandchildren without killing the process group: the grandchild keeps the port and the replacement exits with EADDRINUSE, which looks like a binary bug, not an orphan.",
+      questions: [
+        {
+          q: "A supervised batch job exits 0. The policy is restart-on-failure. What should happen?",
+          options: [
+            "Restart it, because the supervisor restarts every exit",
+            "Treat it as done and stop supervising",
+            "Treat exit 0 as a failure because batch jobs must return 1",
+            "Restart it once and then stop",
+          ],
+          answer: 1,
+          explain: "For one-shot work, exit 0 is completion. A supervisor that restarts clean exits turns a finished migration into an infinite loop.",
+        },
+        {
+          q: "Why reset the failure counter only after a stability window rather than after every successful spawn?",
+          options: [
+            "Because spawn can never fail",
+            "Because a process that starts and dies immediately would reset its own counter and loop forever",
+            "Because systemd requires it",
+            "Because the counter is stored in the child",
+          ],
+          answer: 1,
+          explain: "Resetting on spawn lets a fast crash loop keep its delay at the base value. Uptime is the only evidence that the restart actually worked.",
+        },
+        {
+          q: "A restart repeatedly fails with EADDRINUSE. What is the first thing to check?",
+          options: [
+            "The backoff cap is too low",
+            "A grandchild from the previous run still holds the port, because only the direct child was killed",
+            "The supervisor has too many failures recorded",
+            "The child needs a larger RLIMIT_NOFILE",
+          ],
+          answer: 1,
+          explain: "A direct kill leaves wrapper scripts and re-exec'd servers alive. Spawn each child in its own process group and kill the group before respawning.",
+        },
+      ],
+      quickbytes: [
+        "127 is not a crash: it is a missing binary, and restarting cannot fix it.",
+        "Backoff needs a cap, jitter, and a stability window; two out of three still storms.",
+        "killpg the child's group before every restart, or the orphan keeps the port.",
+      ],
+      resources: [
+        {
+          title: "wait(2): exit status, signals, and WNOHANG",
+          url: "https://man7.org/linux/man-pages/man2/wait.2.html",
+          kind: "docs",
+        },
+        {
+          title: "tokio::process::Command: groups and kill_on_drop",
+          url: "https://docs.rs/tokio/latest/tokio/process/struct.Command.html",
+          kind: "docs",
+        },
+        {
+          title: "conmon: how a container runtime monitors its processes",
+          url: "https://github.com/containers/conmon",
+          kind: "repo",
+        },
+        {
+          title: "InfoQ: operating long-running services and failure handling",
+          url: "https://www.youtube.com/@InfoQ",
+          kind: "video",
+        },
+      ],
+    },
+    {
+      id: "p11",
+      title: "systemd units and socket activation",
+      minutes: 75,
+      level: "industry",
+      goal: "Run a Rust service under systemd with the right unit type, notify readiness, inherit a listening socket, and keep restarts bounded.",
+      sections: [
+        {
+          h: "The unit fields that decide behaviour",
+          p: [
+            "A service unit is small, but four fields explain most production incidents. Type decides when systemd considers the service started: simple means immediately after fork, notify means when the process sends READY=1. Restart plus RestartSec decide the crash policy, and TimeoutStopSec decides how long SIGTERM is allowed to work before SIGKILL.",
+            "KillMode=mixed is the right default for a supervised service: SIGTERM to the main process only, then SIGKILL to the whole cgroup after the timeout, so a cooperative parent can stop its children in order. StartLimitIntervalSec and StartLimitBurst live in the [Unit] section and bound the restart loop; without them a bad config restarts forever.",
+          ],
+          code: `[Unit]
+Description=Rust job runner
+After=network-online.target postgresql.service
+Wants=network-online.target
+# At most 5 starts in 60s, then systemd gives up and enters failed state.
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=notify
+ExecStart=/usr/local/bin/job-runner --config /etc/job-runner.toml
+Restart=on-failure
+RestartSec=2s
+TimeoutStopSec=30
+KillMode=mixed
+WatchdogSec=20
+NotifyAccess=main
+User=jobrunner
+Group=jobrunner
+Environment=RUST_LOG=info
+
+[Install]
+WantedBy=multi-user.target`,
+          tip: "After editing a unit run `systemctl daemon-reload`; after editing the binary run `systemctl restart`. Forgetting the first makes every later diagnosis wrong.",
+        },
+        {
+          h: "Type=notify is a readiness contract",
+          p: [
+            "With Type=notify, systemd holds the service in the activating state until the process writes READY=1 to the notification socket. That is the correct type for a service that runs migrations or loads a cache at boot: simple would report success before the first query works, and dependents would start against a process that is not ready.",
+            "sd-notify 0.5 exposes this as notify(&[NotifyState::Ready]); the older two-argument form is gone. Send MAINPID when you fork a worker, STOPPING=1 when the drain starts, and WATCHDOG=1 on an interval shorter than WatchdogSec. If no notification arrives, systemd kills and restarts the service, which is exactly the behaviour you want for a wedged event loop.",
+          ],
+          code: `use sd_notify::{notify, NotifyState};
+use std::time::Duration;
+
+pub async fn boot(pool: &sqlx::PgPool) -> anyhow::Result<()> {
+    sqlx::migrate!("./migrations").run(pool).await?;
+
+    // The service is only "started" once it can actually serve.
+    notify(&[
+        NotifyState::Ready,
+        NotifyState::Status("migrations applied, accepting work"),
+    ])?;
+    Ok(())
+}
+
+/// Call every WatchdogSec / 3 while the runtime is making progress.
+pub async fn watchdog(token: tokio_util::sync::CancellationToken) {
+    let mut tick = tokio::time::interval(Duration::from_secs(7));
+    loop {
+        tokio::select! {
+            _ = token.cancelled() => break,
+            _ = tick.tick() => {
+                let _ = notify(&[NotifyState::Watchdog]);
+            }
+        }
+    }
+}`,
+          tip: "A watchdog that is sent by a timer task proves only that the timer works. Send it from the loop that does the work, or it will happily report a deadlocked worker as healthy.",
+        },
+        {
+          h: "Socket activation: let systemd hold the socket",
+          p: [
+            "With a .socket unit, systemd creates the listening socket and passes it to the service as file descriptor 3, described by LISTEN_FDS and LISTEN_PID. The service never binds, so the socket survives restarts: connections queue in the kernel backlog while the old process exits and the new one starts, and a restart stops being a connection reset.",
+            "Accept=no passes one listening socket, which is what most services want. Accept=yes passes one connected socket per connection and expects the service to handle exactly one; that model is for inetd-style tools and breaks pooling. Read the descriptors with sd_notify::listen_fds(), which validates LISTEN_PID and sets O_CLOEXEC before handing them over.",
+          ],
+          code: `# job-runner.socket: systemd owns /run/job-runner.sock
+[Unit]
+Description=Job runner socket
+
+[Socket]
+ListenStream=/run/job-runner.sock
+SocketMode=0660
+RemoveOnStop=true
+
+[Install]
+WantedBy=sockets.target
+
+# job-runner.service gains: Requires=job-runner.socket`,
+          tip: "Do not bind the same path in code as a fallback when the socket unit is active: two listeners on one path produce EADDRINUSE at the worst possible moment.",
+        },
+        {
+          h: "Consume the inherited descriptor",
+          p: [
+            "The descriptor arrives as a plain integer, so taking ownership requires an unsafe FromRawFd conversion. Do it exactly once: double ownership means a double close, and the second close can hit a descriptor the runtime has since reused. Set non-blocking before wrapping it in tokio, or every accept blocks a runtime thread.",
+            "Keep a development fallback that binds a path when LISTEN_FDS is absent, so cargo run still works. Gate it on the environment variable rather than on a build feature, and log which path was taken, because the difference between inherited and self-bound sockets explains many permission failures on /run.",
+          ],
+          code: `use std::os::fd::FromRawFd;
+use tokio::net::UnixListener;
+
+pub fn inherited_socket() -> std::io::Result<UnixListener> {
+    // LISTEN_FDS counts descriptors; they start at fd 3.
+    let mut fds = sd_notify::listen_fds()?;
+    let fd = fds.next().ok_or_else(|| {
+        std::io::Error::other("no socket passed: is job-runner.socket active?")
+    })?;
+
+    // SAFETY: systemd passed ownership of this descriptor to this process
+    // exactly once, and nothing else in the program closes it.
+    let listener = unsafe { std::os::unix::net::UnixListener::from_raw_fd(fd) };
+    listener.set_nonblocking(true)?;
+    UnixListener::from_std(listener)
+}`,
+          tip: "`systemd-analyze verify job-runner.service` catches unknown directives and bad paths before you deploy; run it in CI on every unit file.",
+        },
+      ],
+      exercise: {
+        prompt:
+          "Implement inherited_socket: read the descriptors systemd passed, reject the case where none arrived, set the listener non-blocking, and convert fd 3 into a tokio UnixListener. Also implement bind_fallback for local development.",
+        starter: `use std::os::fd::FromRawFd;
+use tokio::net::UnixListener;
+
+// TODO: sd_notify::listen_fds(), take the first fd, from_raw_fd, set
+// non-blocking, UnixListener::from_std.
+pub fn inherited_socket() -> std::io::Result<UnixListener> {
+    todo!()
+}
+
+pub fn bind_fallback(path: &str) -> std::io::Result<UnixListener> {
+    let _ = path;
+    todo!()
+}`,
+        hint: "listen_fds returns an ExactSizeIterator<Item = RawFd>. Wrap std::os::unix::net::UnixListener::from_raw_fd(fd) in unsafe, call set_nonblocking(true), then UnixListener::from_std. Remove a stale socket path before binding in the fallback.",
+        solution: `use std::os::fd::FromRawFd;
+use tokio::net::UnixListener;
+
+pub fn inherited_socket() -> std::io::Result<UnixListener> {
+    let mut fds = sd_notify::listen_fds()?;
+    let fd = fds.next().ok_or_else(|| {
+        std::io::Error::other("no socket passed: is job-runner.socket active?")
+    })?;
+
+    // SAFETY: systemd passed this descriptor to us exactly once.
+    let listener = unsafe { std::os::unix::net::UnixListener::from_raw_fd(fd) };
+    listener.set_nonblocking(true)?;
+    UnixListener::from_std(listener)
+}
+
+pub fn bind_fallback(path: &str) -> std::io::Result<UnixListener> {
+    // Binding over an existing path fails; remove the stale socket first.
+    match std::fs::remove_file(path) {
+        Ok(()) => tracing::warn!(path, "removed stale socket"),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+        Err(err) => return Err(err),
+    }
+    UnixListener::bind(path)
+}`,
+      },
+      production: [
+        "Every long-running unit uses Type=notify or Type=exec, never Type=simple with a slow boot.",
+        "StartLimitBurst is set, so a bad config ends in failed state instead of an endless restart loop.",
+        "TimeoutStopSec exceeds the drain budget, and KillMode=mixed lets the parent stop its children.",
+        "The socket path is owned by the service user, and the service works with or without socket activation.",
+        "systemd-analyze verify runs in CI on every unit and socket file.",
+      ],
+      crates: ["sd-notify", "tokio", "sqlx", "tracing"],
+      github: [
+        { name: "systemd/systemd - units, sd_notify, and socket activation", url: "https://github.com/systemd/systemd" },
+        { name: "mitsuhiko/listenfd - inherited listeners for development", url: "https://github.com/mitsuhiko/listenfd" },
+      ],
+      pitfall:
+        "Using Type=simple for a service that runs migrations: systemd reports it started, dependents connect, and the first requests fail against unapplied schema while the unit looks healthy.",
+      questions: [
+        {
+          q: "A service uses Type=notify but never sends READY=1. What does systemd do?",
+          options: [
+            "Treats the unit as started as soon as the process is forked",
+            "Keeps the unit in the activating state until the start timeout, then fails and applies the restart policy",
+            "Sends SIGTERM immediately after ExecStart returns",
+            "Disables the watchdog for that unit",
+          ],
+          answer: 1,
+          explain: "Type=notify is a contract: the service is not started until READY=1. Without it the start job times out, systemd marks the unit failed, and Restart= takes over.",
+        },
+        {
+          q: "With Accept=no on a .socket unit, what does the service receive?",
+          options: [
+            "One connected socket per accepted connection",
+            "A single listening socket on fd 3, described by LISTEN_FDS",
+            "A pipe that carries connection metadata",
+            "Nothing until the first connection, then one connected socket",
+          ],
+          answer: 1,
+          explain: "Accept=no passes the listening socket itself, so the service accepts in its own loop. Accept=yes launches one service instance per connection, which is the inetd model.",
+        },
+        {
+          q: "Why does socket activation make restarts lossless for connections?",
+          options: [
+            "systemd buffers application payloads in memory",
+            "systemd keeps the listening socket open, so the kernel backlog holds connection attempts across the restart",
+            "The kernel retries the TCP handshake at the client",
+            "Connections are held by the old process until the new one is ready",
+          ],
+          answer: 1,
+          explain: "The listening socket outlives the process. Clients that connect during a restart complete the handshake into the backlog and are accepted by the new process.",
+        },
+      ],
+      quickbytes: [
+        "Type=notify plus READY=1 after migrations is the honest startup contract.",
+        "Bound restart loops with StartLimitBurst in [Unit], not with hope.",
+        "Read the inherited socket exactly once and set it non-blocking before tokio sees it.",
+      ],
+      resources: [
+        {
+          title: "systemd source: sd_listen_fds(3) semantics",
+          url: "https://github.com/systemd/systemd/blob/main/man/sd_listen_fds.xml",
+          kind: "docs",
+        },
+        {
+          title: "sd-notify crate: notify, listen_fds, watchdog",
+          url: "https://docs.rs/sd-notify/latest/sd_notify/",
+          kind: "docs",
+        },
+        {
+          title: "listenfd: inherited descriptors and local development",
+          url: "https://docs.rs/listenfd/latest/listenfd/",
+          kind: "docs",
+        },
+        {
+          title: "systemd repository: unit grammar and behaviour",
+          url: "https://github.com/systemd/systemd",
+          kind: "repo",
+        },
+      ],
+    },
+    {
+      id: "p12",
+      title: "Daemonising and journald logging",
+      minutes: 65,
+      level: "industry",
+      goal: "Decide whether to daemonise at all, do it in the correct order when you must, and ship structured logs to journald instead of a file nobody rotates.",
+      sections: [
+        {
+          h: "Under a supervisor, do not daemonise",
+          p: [
+            "systemd, Docker, and Kubernetes all want a foreground process: they own the lifetime, capture stdout, and deliver signals to the main process. A double fork breaks all three. The parent exits, the supervisor thinks the service stopped, the grandchild is reparented, and its logs go to a file you will never rotate.",
+            "Type=forking and a pidfile exist for legacy software that cannot run in the foreground. New code should not join them. If you must daemonise, for a SysV host or an SSH session, do it before any thread or tokio runtime exists, because after fork only async-signal-safe calls are allowed in the child.",
+          ],
+          code: `use std::os::fd::AsRawFd;
+
+/// Must run before any thread or tokio runtime exists.
+pub fn daemonise() -> nix::Result<()> {
+    // SAFETY: single-threaded here, so no lock or allocator state is copied.
+    match unsafe { nix::unistd::fork() }? {
+        nix::unistd::ForkResult::Parent { .. } => std::process::exit(0),
+        nix::unistd::ForkResult::Child => {}
+    }
+    nix::unistd::setsid()?; // new session: no controlling terminal
+
+    // Second fork: the grandchild can never reacquire a terminal.
+    match unsafe { nix::unistd::fork() }? {
+        nix::unistd::ForkResult::Parent { .. } => std::process::exit(0),
+        nix::unistd::ForkResult::Child => {}
+    }
+
+    std::env::set_current_dir("/")?;
+    let devnull = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open("/dev/null")?;
+    // SAFETY: dup2 onto the standard descriptors; the file stays open.
+    unsafe {
+        libc::dup2(devnull.as_raw_fd(), libc::STDIN_FILENO);
+        libc::dup2(devnull.as_raw_fd(), libc::STDOUT_FILENO);
+        libc::dup2(devnull.as_raw_fd(), libc::STDERR_FILENO);
+    }
+    Ok(())
+}`,
+          tip: "A pidfile is not a lock. Write it after the final fork, with O_EXCL, and keep a flock on it; otherwise two starts race and the second overwrites the first's pid.",
+        },
+        {
+          h: "journald is the sink, not a file",
+          p: [
+            "When stdout is connected to journald, every line is tagged with the unit, the syslog identifier, the pid, and the boot id. journalctl can then filter by unit or field, and the journal handles rotation and rate limiting. Writing your own log file reimplements all of that badly and usually without a size cap.",
+            "tracing-journald sends each event as a native journal entry, so span fields become journal fields you can query with `journalctl -u job-runner JOB_ID=abc`. That is the difference between grepping text and filtering records, and it is worth the extra dependency on Linux.",
+          ],
+          code: `use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::EnvFilter;
+
+pub fn init(filter: &str) -> anyhow::Result<()> {
+    let registry = tracing_subscriber::registry().with(EnvFilter::try_new(filter)?);
+
+    match tracing_journald::layer() {
+        Ok(journald) => registry.with(journald).try_init()?,
+        Err(err) => {
+            // No journal socket: running outside a unit, so fall back.
+            eprintln!("journald unavailable ({err}), logging to stderr");
+            registry.with(tracing_subscriber::fmt::layer()).try_init()?;
+        }
+    }
+    Ok(())
+}`,
+          tip: "Set RateLimitBurst and RateLimitIntervalSec deliberately. The default drops messages under a log storm, and a missing message during an incident looks exactly like a code path that never ran.",
+        },
+        {
+          h: "Logs that survive aggregation",
+          p: [
+            "One event per line, stable field names, and an error chain rendered explicitly. tracing's %err is Display and ?err is Debug; pick one per field and keep it stable, because a dashboard that parses your message text breaks the moment somebody edits a sentence.",
+            "High-cardinality values belong in fields, not in metric labels or log-derived index keys. A job id in every line is fine for journalctl; the same id as a Prometheus label blows up the time series count. And never log the payload of a job: logs are the least protected copy of your data.",
+          ],
+          list: [
+            "Fields: service, job_id, queue, attempt, outcome, duration_ms",
+            "Errors: log the source chain once, at the boundary, not at every layer",
+            "Never log secrets, tokens, or full job payloads; log sizes and hashes instead",
+            "Keep the message short and the fields rich; messages are for humans, fields are for queries",
+          ],
+          tip: "Check what journald actually received with `journalctl -u job-runner -o json | jq '.JOB_ID'` before trusting any dashboard built on those fields.",
+        },
+      ],
+      exercise: {
+        prompt:
+          "Implement init(filter): build an EnvFilter, install a tracing-journald layer when the journal socket exists, and fall back to a stderr fmt layer when it does not. Return an error only if filter parsing fails.",
+        starter: `use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::EnvFilter;
+
+// TODO: registry().with(EnvFilter), then match tracing_journald::layer().
+pub fn init(filter: &str) -> anyhow::Result<()> {
+    let _ = (filter, tracing_journald::layer());
+    Ok(())
+}`,
+        hint: "tracing_journald::layer() returns Result<Layer, io::Error>. Build the registry first, then in each match arm call registry.with(...).try_init(). try_init fails if a global subscriber is already set.",
+        solution: `use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::EnvFilter;
+
+pub fn init(filter: &str) -> anyhow::Result<()> {
+    let registry = tracing_subscriber::registry().with(EnvFilter::try_new(filter)?);
+
+    match tracing_journald::layer() {
+        Ok(journald) => registry.with(journald).try_init()?,
+        Err(err) => {
+            eprintln!("journald unavailable ({err}), logging to stderr");
+            registry.with(tracing_subscriber::fmt::layer()).try_init()?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_an_invalid_filter() {
+        assert!(init("this is not a filter").is_err());
+    }
+}`,
+      },
+      production: [
+        "The service runs in the foreground under its supervisor; daemonising exists only for legacy hosts.",
+        "If a pidfile exists, it is written after the final fork, created with O_EXCL, and protected by flock.",
+        "Logs go to journald or stdout, never to an application-managed file without rotation.",
+        "Structured fields are documented and queried by name; no dashboard parses message text.",
+        "RateLimitBurst is tuned and a dropped-message counter is reviewed after incidents.",
+      ],
+      crates: ["tracing", "tracing-subscriber", "tracing-journald", "nix"],
+      github: [
+        { name: "tokio-rs/tracing - structured logging and the journald layer", url: "https://github.com/tokio-rs/tracing" },
+        { name: "systemd/systemd - journald and unit documentation", url: "https://github.com/systemd/systemd" },
+      ],
+      pitfall:
+        "Forking after the tokio runtime has started worker threads: the child inherits locks held by threads that no longer exist, and the process deadlocks in the allocator or the logger on its first allocation.",
+      questions: [
+        {
+          q: "Why must daemonise() run before the tokio runtime is created?",
+          options: [
+            "Because tokio refuses to start in a session leader",
+            "Because after fork in a multithreaded process only the calling thread survives, including any locks it did not hold",
+            "Because setsid resets the runtime's timer wheel",
+            "Because the runtime registers a SIGCHLD handler that fork removes",
+          ],
+          answer: 1,
+          explain: "The child of a multithreaded fork has one thread and the memory of many, including mutexes held by threads that do not exist in the child. Only async-signal-safe calls are legal until exec.",
+        },
+        {
+          q: "journald drops some of your log lines during a burst. Where do you look first?",
+          options: [
+            "The tracing subscriber filter",
+            "RateLimitIntervalSec and RateLimitBurst in journald.conf",
+            "The filesystem permissions on /var/log",
+            "The kernel's dmesg buffer",
+          ],
+          answer: 1,
+          explain: "journald rate-limits per unit by default. Raise the burst or reduce log volume at the source, and check the suppression notice in the journal.",
+        },
+        {
+          q: "Which log field is safe to use as a Prometheus label?",
+          options: [
+            "job_id",
+            "request_id",
+            "queue name",
+            "user email",
+          ],
+          answer: 2,
+          explain: "Queue names are a small, bounded set. Job, request, and user identifiers are unbounded and would create one time series per value, which is how metrics backends fall over.",
+        },
+      ],
+      quickbytes: [
+        "Foreground plus journald beats a double fork on every axis a supervisor cares about.",
+        "Write the pidfile after the last fork, with O_EXCL and a flock; a pidfile alone is not a lock.",
+        "Put identifiers in journal fields, never in metric labels.",
+      ],
+      resources: [
+        {
+          title: "daemon(7): the double-fork recipe and its caveats",
+          url: "https://man7.org/linux/man-pages/man7/daemon.7.html",
+          kind: "docs",
+        },
+        {
+          title: "fork(2): what is safe between fork and exec",
+          url: "https://man7.org/linux/man-pages/man2/fork.2.html",
+          kind: "docs",
+        },
+        {
+          title: "tracing-journald: structured events to the journal",
+          url: "https://docs.rs/tracing-journald/latest/tracing_journald/",
+          kind: "docs",
+        },
+        {
+          title: "systemd repository: journald configuration and fields",
+          url: "https://github.com/systemd/systemd",
+          kind: "repo",
+        },
+      ],
+    },
+    {
+      id: "p13",
+      title: "Autoscaling workers by queue depth",
+      minutes: 70,
+      level: "industry",
+      goal: "Turn queue depth and job age into a replica count with a control loop that has a step limit, a cooldown, and a floor, instead of scaling on CPU.",
+      sections: [
+        {
+          h: "Depth is lagging; age is what users feel",
+          p: [
+            "CPU is a poor scaling signal for a worker that waits on a database or an HTTP API: it idles at 15 percent while the queue grows. Queue depth is better, but depth alone cannot tell a burst from a stall: a consumer that has died also produces a growing depth, and so does a sudden surge of new work.",
+            "Oldest-job age separates the two. Little's law says the number in the system equals arrival rate times time in system, so if age is rising while depth is flat, throughput has fallen and the answer is a fix, not more replicas. Size from arrival rate and service time, and use age as the alarm.",
+          ],
+          code: `use std::time::Duration;
+
+pub fn required_workers(arrivals_per_sec: f64, p95_secs: f64, target_util: f64) -> u32 {
+    assert!(target_util > 0.0 && target_util < 1.0, "util must be in (0, 1)");
+    // Little's law: L = lambda * W, then divide by headroom.
+    let in_flight = arrivals_per_sec * p95_secs;
+    (in_flight / target_util).ceil().max(1.0) as u32
+}
+
+#[derive(Debug)]
+pub struct AgeAlert {
+    pub threshold: Duration,
+}
+
+impl AgeAlert {
+    /// Age, not depth, is the user-visible symptom.
+    pub fn is_slow(&self, oldest_secs: u64) -> bool {
+        Duration::from_secs(oldest_secs) > self.threshold
+    }
+}`,
+          tip: "Compute target_util from your SLO, not from a feeling. A queue at 90 percent utilisation has a latency blow-up long before it saturates.",
+        },
+        {
+          h: "A control loop, not a reaction",
+          p: [
+            "One depth sample is noise. Feed the controller a smoothed value, clamp the result to a floor and ceiling, and limit how far one decision may move the fleet. Scaling from 2 to 40 in one step is how a cold dependency receives a thundering herd of new workers that all connect at once.",
+            "Scale up fast and scale down slowly. Up is cheap in latency and expensive in capacity; down is the reverse, and a premature scale-down that immediately scales back up is a flap that costs more than the capacity it saved. A scale-down cooldown longer than the job p99 is the simplest defence.",
+          ],
+          code: `pub struct ScalePolicy {
+    pub min: u32,
+    pub max: u32,
+    pub jobs_per_worker: u32,
+    pub step: u32,
+}
+
+pub fn desired(policy: &ScalePolicy, depth: u64, current: u32) -> u32 {
+    let needed = (depth as f64 / policy.jobs_per_worker as f64).ceil() as u32;
+    let target = needed.clamp(policy.min, policy.max);
+
+    if target > current {
+        // Scale up quickly, but never jump the whole gap at once.
+        (current + policy.step).min(target)
+    } else if target < current {
+        // Scale down one worker at a time, never below the floor.
+        let down = current.saturating_sub(1);
+        down.max(policy.min).max(target)
+    } else {
+        current
+    }
+}`,
+          tip: "Keep the controller a pure function and test it with a table of (depth, current) cases. Autoscalers fail on the edge cases, not on the happy path.",
+        },
+        {
+          h: "When the broker buffers, depth lies",
+          p: [
+            "If the broker pushes batches to consumers, the queue looks empty while every worker is saturated: the backlog exists in prefetched messages and in-flight requests. Use broker-side lag or in-flight count, not the application's own counter, or you will scale to one replica during the exact incident that needed forty.",
+            "Kubernetes exposes this through an External metric, and the HPA still applies its own behaviour rules on top of your value. Set scaleUp and scaleDown policies explicitly; the default scale-down stabilization window is five minutes, which silently overrides a controller you thought was in charge.",
+          ],
+          code: `apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: job-runner
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: job-runner
+  minReplicas: 2
+  maxReplicas: 40
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 30
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 60
+  metrics:
+    - type: External
+      external:
+        metric:
+          name: job_queue_depth
+          selector:
+            matchLabels:
+              queue: default
+        target:
+          type: AverageValue
+          averageValue: "20"`,
+          tip: "Every replica opens its own database pool. max_connections divided by pool size is a hard ceiling on replicas; scaling past it converts a queue problem into a connection-refused problem.",
+        },
+        {
+          h: "Floor, ceiling, and scale to zero",
+          p: [
+            "The floor is not one. Keep at least two replicas so a node drain does not take the whole worker fleet, and keep enough capacity to absorb a cold start: the queue grows while a new pod pulls an image and replays a cache. The ceiling is a contract with the downstream, not with the cloud budget.",
+            "Scale to zero only when the trigger is a cheap poll and the cold start is inside the latency budget. A worker that takes 90 seconds to become ready should never scale to zero behind a queue with a 30-second SLO, because the first job after idle always misses.",
+          ],
+          list: [
+            "Floor of two for availability, plus a burst buffer for cold starts",
+            "Ceiling derived from the downstream connection budget, written down",
+            "Cooldown longer than the p99 job duration to avoid flapping",
+            "Scale-to-zero only with a cheap activation path and a generous timeout",
+          ],
+          tip: "Record every scaling decision with the inputs that produced it. Reconstructing why the fleet went to forty replicas is impossible from a graph alone.",
+        },
+      ],
+      exercise: {
+        prompt:
+          "Implement desired(policy, depth, current): compute the needed workers from depth and jobs_per_worker, clamp to min and max, move up by at most step per decision, and scale down by one. Add table tests for the floor, the ceiling, and no-op cases.",
+        starter: `pub struct ScalePolicy {
+    pub min: u32,
+    pub max: u32,
+    pub jobs_per_worker: u32,
+    pub step: u32,
+}
+
+// TODO: ceil(depth / jobs_per_worker), clamp, apply the asymmetric step.
+pub fn desired(_policy: &ScalePolicy, _depth: u64, _current: u32) -> u32 {
+    1
+}
+
+fn main() {
+    let policy = ScalePolicy { min: 2, max: 40, jobs_per_worker: 20, step: 4 };
+    println!("{}", desired(&policy, 1000, 2));
+}`,
+        hint: "Use f64 division with ceil, then clamp. On scale-up return (current + step).min(target); on scale-down return current.saturating_sub(1).max(min).max(target).",
+        solution: `pub struct ScalePolicy {
+    pub min: u32,
+    pub max: u32,
+    pub jobs_per_worker: u32,
+    pub step: u32,
+}
+
+pub fn desired(policy: &ScalePolicy, depth: u64, current: u32) -> u32 {
+    let needed = (depth as f64 / policy.jobs_per_worker as f64).ceil() as u32;
+    let target = needed.clamp(policy.min, policy.max);
+
+    if target > current {
+        (current + policy.step).min(target)
+    } else if target < current {
+        current.saturating_sub(1).max(policy.min).max(target)
+    } else {
+        current
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn policy() -> ScalePolicy {
+        ScalePolicy { min: 2, max: 40, jobs_per_worker: 20, step: 4 }
+    }
+
+    #[test]
+    fn scales_up_by_at_most_step() {
+        assert_eq!(desired(&policy(), 1_000, 2), 6);
+    }
+
+    #[test]
+    fn never_below_the_floor() {
+        assert_eq!(desired(&policy(), 0, 3), 2);
+        assert_eq!(desired(&policy(), 0, 2), 2);
+    }
+
+    #[test]
+    fn never_above_the_ceiling() {
+        assert_eq!(desired(&policy(), 1_000_000, 39), 40);
+    }
+
+    #[test]
+    fn scales_down_one_at_a_time() {
+        assert_eq!(desired(&policy(), 20, 10), 9);
+    }
+}`,
+      },
+      production: [
+        "Workers scale on queue depth or broker lag, never on CPU alone, and the chosen metric is documented.",
+        "Oldest-job age is alerted on separately, because it distinguishes a stall from a burst.",
+        "Scale-up is step-limited and scale-down has a cooldown longer than the p99 job duration.",
+        "The replica ceiling is derived from the downstream connection budget, not from the budget.",
+        "Every scaling decision is logged with its inputs so a fleet size can be explained afterwards.",
+      ],
+      crates: ["tokio", "metrics", "tracing"],
+      github: [
+        { name: "kubernetes/kubernetes - HPA controller and external metrics", url: "https://github.com/kubernetes/kubernetes" },
+      ],
+      pitfall:
+        "Scaling on an application-side queue counter while the broker prefetches batches: depth reads zero at full saturation, so the controller scales down exactly when the backlog is largest.",
+      questions: [
+        {
+          q: "A worker pool is IO-bound: 15 percent CPU and a growing queue. Which scaling signal is appropriate?",
+          options: [
+            "CPU utilisation, because 15 percent means there is headroom",
+            "Queue depth or oldest-job age, because CPU does not reflect waiting on IO",
+            "Memory usage, because waiting tasks buffer in memory",
+            "Replica count itself, scaled linearly with time",
+          ],
+          answer: 1,
+          explain: "IO-bound workers idle while work waits. Depth and age measure the backlog the user experiences; CPU stays low until the dependency recovers.",
+        },
+        {
+          q: "Why is a scale-down cooldown longer than the p99 job duration?",
+          options: [
+            "Because Kubernetes requires it",
+            "Because a job removed mid-flight is lost, and the p99 bounds how long workers must be given",
+            "Because metrics are scraped every 60 seconds",
+            "Because scale-down costs more than scale-up",
+          ],
+          answer: 1,
+          explain: "Scaling down kills the pod, and its in-flight jobs must be finished or requeued. A cooldown below the job duration guarantees work is interrupted on every scale event.",
+        },
+        {
+          q: "With 40 replicas, a pool of 10 connections per replica, and a Postgres max_connections of 200, what happens?",
+          options: [
+            "Connections are multiplexed transparently by the pooler",
+            "200 of the 400 desired connections fail, so scale-up stops helping and errors look like database failures",
+            "Postgres queues the extra connections until a slot is free",
+            "The HPA detects the limit and caps itself at 20 replicas",
+          ],
+          answer: 1,
+          explain: "Each replica opens its own pool, so the fleet needs replicas x pool_size connections. Exceeding max_connections fails at connect time and masks the real capacity limit.",
+        },
+      ],
+      quickbytes: [
+        "Scale on depth or lag; alert on age. They answer different questions.",
+        "Cap the step: a jump from 2 to 40 is a self-inflicted thundering herd.",
+        "max_connections / pool_size is your real maximum replica count.",
+      ],
+      resources: [
+        {
+          title: "Kubernetes Horizontal Pod Autoscaling: behaviour and policies",
+          url: "https://kubernetes.io/docs/concepts/workloads/autoscaling/horizontal-pod-autoscale/",
+          kind: "docs",
+        },
+        {
+          title: "metrics crate: counters, gauges, and histograms",
+          url: "https://docs.rs/metrics/latest/metrics/",
+          kind: "docs",
+        },
+        {
+          title: "Kubernetes repository: HPA controller implementation",
+          url: "https://github.com/kubernetes/kubernetes",
+          kind: "repo",
+        },
+        {
+          title: "CNCF: autoscaling and workload talks",
+          url: "https://www.youtube.com/@CNCF",
+          kind: "video",
+        },
+      ],
+    },
+    {
+      id: "p14",
+      title: "At-least-once execution and dedupe",
+      minutes: 75,
+      level: "industry",
+      goal: "Make a job safe to run twice: claim it with a lease, commit the effect and the dedupe record together, and size the dedupe window from the retry horizon.",
+      sections: [
+        {
+          h: "Delivery is at-least-once; effects must be idempotent",
+          p: [
+            "A worker acknowledges a job after doing the work. If it crashes in between, the broker redelivers, because the alternative is losing the job. That gap is not a bug in the broker; it is the price of not having a distributed transaction between the queue and your database.",
+            "So the guarantee you build is at-least-once delivery plus idempotent effects, which is effectively-once for the observable state. The idempotency key is the whole design: the same key must produce the same effect no matter how many times the handler runs, including concurrently, which means a uniqueness constraint rather than a read-then-write check.",
+          ],
+          code: `-- One statement claims a job and extends its lease.
+WITH claimed AS (
+    SELECT id FROM jobs
+    WHERE (status = 'queued' AND run_at <= now())
+       OR (status = 'running' AND lease_until < now())
+    ORDER BY priority DESC, run_at
+    FOR UPDATE SKIP LOCKED
+    LIMIT 1
+)
+UPDATE jobs
+   SET status = 'running',
+       attempts = attempts + 1,
+       lease_until = now() + interval '5 minutes',
+       worker_id = $1
+  FROM claimed
+ WHERE jobs.id = claimed.id
+RETURNING jobs.id, jobs.payload, jobs.attempts;`,
+          tip: "SKIP LOCKED is what makes N workers scale. Without it, every worker queues behind the same row and throughput is one.",
+        },
+        {
+          h: "A lease, not a lock",
+          p: [
+            "A lock held by a crashed worker is held forever; a lease expires. The worker renews the lease while it works, and a sweeper requeues anything whose lease expired. That converts a crash into a bounded delay instead of a stuck queue.",
+            "The cost is that two workers can run the same job at once: one paused past its lease, the other after requeue. This is normal, not exceptional, so the handler must tolerate concurrent execution. If it cannot, add fencing: the effect checks the attempt number or a monotonic epoch and rejects writes from a stale attempt.",
+          ],
+          code: `-- Renew the lease while the job is still running.
+-- Zero rows affected means the lease was lost: stop and do not commit.
+UPDATE jobs
+   SET lease_until = now() + interval '5 minutes'
+ WHERE id = $1
+   AND worker_id = $2
+   AND status = 'running'
+RETURNING id;
+
+-- Fencing: a stale worker's write is rejected because the attempt
+-- moved on, so the late write cannot land after a newer one.
+UPDATE jobs
+   SET lease_until = now() + interval '5 minutes'
+ WHERE id = $1 AND attempts = $3
+RETURNING id;`,
+          tip: "Never make the lease longer than the job's p99 and call it safety. A long lease delays recovery; a short lease requires renewal and fencing. Pick one deliberately.",
+        },
+        {
+          h: "Dedupe at the effect boundary",
+          p: [
+            "The dedupe row and the business write must commit in the same transaction. Insert the key with ON CONFLICT DO NOTHING, check rows_affected, and only then apply the effect; if the insert won, the effect is committed in the same transaction, so there is no window where one exists without the other.",
+            "A read-then-write check has a race between the SELECT and the INSERT, and two workers both pass it. A unique index does not. This is also why the dedupe table is not a cache: it is part of the correctness proof, and deleting a row early re-opens the exact hole it was meant to close.",
+          ],
+          code: `use sqlx::PgPool;
+
+#[derive(Debug, PartialEq)]
+pub enum Outcome {
+    Executed,
+    Duplicate,
+}
+
+pub async fn credit_once(
+    pool: &PgPool,
+    job_key: &str,
+    account: i64,
+    amount: i64,
+) -> sqlx::Result<Outcome> {
+    let mut tx = pool.begin().await?;
+
+    let inserted = sqlx::query(
+        "INSERT INTO processed_jobs (job_key) VALUES ($1) ON CONFLICT DO NOTHING",
+    )
+    .bind(job_key)
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+
+    if inserted == 0 {
+        tx.rollback().await?; // already applied by an earlier attempt
+        return Ok(Outcome::Duplicate);
+    }
+
+    sqlx::query("UPDATE accounts SET balance = balance + $1 WHERE id = $2")
+        .bind(amount)
+        .bind(account)
+        .execute(&mut *tx)
+        .await?;
+
+    tx.commit().await?;
+    Ok(Outcome::Executed)
+}`,
+          tip: "Index the dedupe key and add a created_at column in the same migration. You will need to prune it, and pruning without a timestamp is a full scan.",
+        },
+        {
+          h: "How long does a dedupe row live?",
+          p: [
+            "Forever is the safe answer and eventually an operational problem. The defensible minimum is longer than the maximum time a job can be redelivered: max attempts times the retry backoff plus the lease, with margin. If a job can be replayed by an operator next month, the row has to survive that too.",
+            "Two designs are common. Keep a bounded window and accept that very old replays may double-apply, or keep the key forever and partition the table by month so pruning is a partition drop. Choose based on whether the effect is money or a notification, and write the choice down where the next on-call engineer will find it.",
+          ],
+          list: [
+            "Retention must exceed max attempts x backoff plus lease duration",
+            "Partition by created_at so dropping old keys is O(1), not a delete storm",
+            "A manual replay tool must respect the same dedupe table, or it defeats the design",
+            "Dedupe on a stable key: client-supplied, or a hash of the immutable payload, never a timestamp",
+          ],
+          tip: "Server-computed keys from the payload dedupe identical legitimate repeats too. If a user may send the same request twice on purpose, the client must supply the key.",
+        },
+      ],
+      exercise: {
+        prompt:
+          "Implement claim, which takes one job with SKIP LOCKED and returns its id and attempts, and credit_once, which applies an effect exactly once by committing a dedupe insert and an update in one transaction.",
+        starter: `use sqlx::PgPool;
+
+pub struct Claimed {
+    pub id: i64,
+    pub attempts: i32,
+}
+
+// TODO: CTE with FOR UPDATE SKIP LOCKED, then UPDATE ... RETURNING.
+pub async fn claim(_pool: &PgPool, _worker: &str) -> sqlx::Result<Option<Claimed>> {
+    Ok(None)
+}
+
+// TODO: insert the dedupe key with ON CONFLICT DO NOTHING; only apply the
+// effect when rows_affected() == 1, and commit both together.
+pub async fn credit_once(
+    _pool: &PgPool,
+    _job_key: &str,
+    _account: i64,
+    _amount: i64,
+) -> sqlx::Result<bool> {
+    Ok(false)
+}`,
+        hint: "Use query_as with a struct that derives sqlx::FromRow, or query_scalar for the id. In credit_once, begin a transaction, check rows_affected on the insert, and return early without the update when it is zero.",
+        solution: `use sqlx::PgPool;
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct Claimed {
+    pub id: i64,
+    pub attempts: i32,
+}
+
+pub async fn claim(pool: &PgPool, worker: &str) -> sqlx::Result<Option<Claimed>> {
+    sqlx::query_as::<_, Claimed>(
+        r#"
+        WITH claimed AS (
+            SELECT id FROM jobs
+            WHERE (status = 'queued' AND run_at <= now())
+               OR (status = 'running' AND lease_until < now())
+            ORDER BY priority DESC, run_at
+            FOR UPDATE SKIP LOCKED
+            LIMIT 1
+        )
+        UPDATE jobs
+           SET status = 'running',
+               attempts = attempts + 1,
+               lease_until = now() + interval '5 minutes',
+               worker_id = $1
+          FROM claimed
+         WHERE jobs.id = claimed.id
+        RETURNING jobs.id, jobs.attempts
+        "#,
+    )
+    .bind(worker)
+    .fetch_optional(pool)
+    .await
+}
+
+pub async fn credit_once(
+    pool: &PgPool,
+    job_key: &str,
+    account: i64,
+    amount: i64,
+) -> sqlx::Result<bool> {
+    let mut tx = pool.begin().await?;
+
+    let inserted = sqlx::query(
+        "INSERT INTO processed_jobs (job_key) VALUES ($1) ON CONFLICT DO NOTHING",
+    )
+    .bind(job_key)
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+
+    if inserted == 0 {
+        tx.rollback().await?;
+        return Ok(false);
+    }
+
+    sqlx::query("UPDATE accounts SET balance = balance + $1 WHERE id = $2")
+        .bind(amount)
+        .bind(account)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(true)
+}`,
+      },
+      production: [
+        "Every handler has an idempotency key with a unique constraint, and the effect commits in the same transaction.",
+        "Job claims use a lease with renewal, and a sweeper requeues expired leases.",
+        "Dedupe retention is documented and exceeds the maximum redelivery horizon.",
+        "Handlers tolerate concurrent execution of the same key, or use fencing to reject stale attempts.",
+        "Attempts are capped and exhausted jobs move to a dead-letter state with the last error attached.",
+      ],
+      crates: ["sqlx", "tokio", "tracing", "uuid"],
+      github: [
+        { name: "launchbadge/sqlx - async SQL, transactions, and pools", url: "https://github.com/launchbadge/sqlx" },
+      ],
+      pitfall:
+        "Checking for a duplicate with SELECT before INSERT: two workers both see nothing, both insert and both apply the effect. Only a unique index plus ON CONFLICT closes that race.",
+      questions: [
+        {
+          q: "A worker commits its effect, then crashes before acknowledging the job. What happens, and is it safe?",
+          options: [
+            "The job is lost, because the ack never arrived",
+            "The job is redelivered; the handler sees the dedupe row and skips the effect",
+            "The broker marks the job complete from the commit log",
+            "The effect is rolled back by the broker",
+          ],
+          answer: 1,
+          explain: "At-least-once means a missing ack causes redelivery. The dedupe row committed with the effect makes the second run a no-op, which is what effectively-once means.",
+        },
+        {
+          q: "Two workers run the same job because one paused past its lease. What is the correct response?",
+          options: [
+            "Prevent it by making leases infinite",
+            "Accept it: the handler must be idempotent, or reject stale attempts with a fencing check",
+            "Disable SKIP LOCKED so only one worker can claim",
+            "Delete the job from the queue on the first execution",
+          ],
+          answer: 1,
+          explain: "Leases expire by design, so concurrent execution is always possible. Either the effect is idempotent, or the write checks the attempt epoch and refuses stale workers.",
+        },
+        {
+          q: "The dedupe table keeps keys for one hour, but retries can happen for six hours. What is the failure?",
+          options: [
+            "A key collision between different jobs",
+            "A late retry finds no key and applies the effect a second time",
+            "The unique index stops enforcing uniqueness",
+            "The handler blocks on the missing key",
+          ],
+          answer: 1,
+          explain: "Retention is part of the guarantee. If a redelivery can arrive after the key is pruned, the duplicate check passes and the effect runs twice.",
+        },
+      ],
+      quickbytes: [
+        "Insert the dedupe key with ON CONFLICT DO NOTHING and commit it with the effect.",
+        "Leases expire; locks do not. Expiry means duplicates, so handlers must be idempotent.",
+        "Dedupe retention must outlive the longest possible redelivery, including manual replays.",
+      ],
+      resources: [
+        {
+          title: "sqlx: transactions and query execution",
+          url: "https://docs.rs/sqlx/latest/sqlx/",
+          kind: "docs",
+        },
+        {
+          title: "PostgreSQL INSERT: ON CONFLICT and RETURNING",
+          url: "https://www.postgresql.org/docs/current/sql-insert.html",
+          kind: "docs",
+        },
+        {
+          title: "sqlx repository: pool and transaction internals",
+          url: "https://github.com/launchbadge/sqlx",
+          kind: "repo",
+        },
+        {
+          title: "InfoQ: idempotency, retries, and exactly-once claims",
+          url: "https://www.youtube.com/@InfoQ",
+          kind: "video",
+        },
+      ],
+    },
+    {
+      id: "p15",
+      title: "Job prioritisation and fairness",
+      minutes: 65,
+      level: "advanced",
+      goal: "Serve urgent work first without starving bulk work: choose a queue discipline, enforce weighted fairness per tenant, and avoid head-of-line blocking.",
+      sections: [
+        {
+          h: "Strict priority starves the tail",
+          p: [
+            "A single priority queue is seductive: pop the highest priority job, done. Under sustained load, low-priority work never runs, and the queue for it grows without bound. Worse, priority inheritance problems appear: a high-priority job that needs a low-priority job's output waits forever, and nothing in the scheduler knows that.",
+            "Aging, incrementing priority with wait time, bounds starvation but destroys the meaning of priority, because eventually everything is urgent. The cleaner answer is reserved capacity: a fixed share of workers always serves the bulk class, and the remainder is divided by weight. Bulk work gets slower under load, never starved.",
+          ],
+          code: `pub struct Reservation {
+    /// Workers always available to the bulk class, regardless of load.
+    pub bulk_floor: usize,
+    pub total: usize,
+}
+
+impl Reservation {
+    pub fn workers_for(&self, class: Class) -> usize {
+        match class {
+            Class::Bulk => self.bulk_floor,
+            Class::Interactive => self.total - self.bulk_floor,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Class {
+    Bulk,
+    Interactive,
+}`,
+          tip: "Priorities are a product decision with a support cost. Cap the number of classes at three, and document the SLA each one actually gets.",
+        },
+        {
+          h: "Weighted fair queueing in one struct",
+          p: [
+            "Weighted fair queueing picks the class with the smallest served-to-weight ratio, so over time each class gets its share and no class is starved. When a class is empty, its share goes to whoever has work, which keeps the pool work-conserving instead of idling reserved capacity.",
+            "Fixed-point arithmetic avoids float drift and makes the tests deterministic. Compare served times one thousand divided by weight, and the ordering stays stable after millions of picks, where an f64 starts tying on values that differ by less than its precision. The tie-break matters more than it looks: always prefer the lower index, or the ordering depends on hash iteration and the test flakes once a year.",
+          ],
+          code: `pub struct FairPicker {
+    weights: Vec<u32>,
+    served: Vec<u64>,
+}
+
+impl FairPicker {
+    pub fn new(weights: &[u32]) -> Self {
+        assert!(!weights.is_empty(), "at least one class");
+        assert!(weights.iter().all(|w| *w > 0), "weights must be positive");
+        Self { weights: weights.to_vec(), served: vec![0; weights.len()] }
+    }
+
+    /// Smallest served/weight ratio among classes that have work.
+    pub fn next_class(&mut self, depth: &[usize]) -> Option<usize> {
+        assert_eq!(depth.len(), self.weights.len());
+        let mut best: Option<(usize, u64)> = None;
+
+        for (class, weight) in self.weights.iter().enumerate() {
+            if depth[class] == 0 {
+                continue; // work-conserving: skip empty classes
+            }
+            let cost = self.served[class] * 1_000 / u64::from(*weight);
+            match best {
+                Some((_, best_cost)) if cost >= best_cost => {} // keep first on ties
+                _ => best = Some((class, cost)),
+            }
+        }
+
+        let (class, _) = best?;
+        self.served[class] += 1;
+        Some(class)
+    }
+}`,
+          tip: "Do not reset the served counters on a timer. Reset them by subtracting the minimum when every class has been served, or the ratios drift apart under long-running load.",
+        },
+        {
+          h: "Head-of-line blocking is a scheduling bug",
+          p: [
+            "One FIFO queue with a ten-minute report ahead of five hundred 20 ms notifications delays every notification by ten minutes. No priority scheme fixes that if the long job has already been admitted to the only lane; the fix is either a separate lane for short work or a scheduler that admits by class.",
+            "Separate lanes have a cost: each needs its own concurrency budget, and a saturated short lane still needs a share of workers. The trade-off is explicit, which is the point. Shortest-job-first minimises mean latency but starves long jobs, so in practice it means reserving a lane rather than sorting by duration.",
+          ],
+          list: [
+            "Long jobs get their own lane so they cannot block short ones",
+            "Short lanes must still be bounded, or they consume the whole pool",
+            "Preemption requires checkpointing; most job runners should not attempt it",
+            "Admission control beats reordering: reject or defer work you cannot serve",
+          ],
+          tip: "Measure queue time per class, not just overall throughput. A p99 wait of ten minutes in the interactive class is invisible in an aggregate throughput graph.",
+        },
+        {
+          h: "The heap does not preserve FIFO",
+          p: [
+            "Rust's BinaryHeap is a max-heap and makes no promise about elements that compare equal, so two jobs with the same priority can come out in any order. That is usually fine, and occasionally it is a fairness bug: a stream of equal-priority jobs can be reordered for reasons nobody can reproduce.",
+            "Add a monotonically increasing sequence number and compare it in reverse so lower sequence wins. Deriving Ord on a tuple works, but `Reverse` makes the intent legible and prevents the classic mistake of ordering by sequence in the wrong direction.",
+          ],
+          code: `use std::cmp::{Ordering, Reverse};
+use std::collections::BinaryHeap;
+
+#[derive(Eq, PartialEq, Debug)]
+pub struct Queued {
+    pub priority: u8,
+    pub seq: u64,
+}
+
+impl Ord for Queued {
+    fn cmp(&self, other: &Self) -> Ordering {
+        // Higher priority first; within a priority, lower seq first.
+        (self.priority, Reverse(self.seq)).cmp(&(other.priority, Reverse(other.seq)))
+    }
+}
+
+impl PartialOrd for Queued {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+#[test]
+fn equal_priority_pops_in_submission_order() {
+    let mut heap = BinaryHeap::new();
+    heap.push(Queued { priority: 1, seq: 2 });
+    heap.push(Queued { priority: 1, seq: 1 });
+    assert_eq!(heap.pop().unwrap().seq, 1);
+}`,
+          tip: "A sequence number needs to survive restarts. Use the database sequence that assigned the job, not an in-memory counter, or ordering resets on every deploy.",
+        },
+      ],
+      exercise: {
+        prompt:
+          "Implement FairPicker: given per-class weights and current depths, return the class with the smallest served-to-weight ratio that has work, and increment its served count. Ties go to the lower class index. Add a test showing a 3:1 weight split.",
+        starter: `pub struct FairPicker {
+    weights: Vec<u32>,
+    served: Vec<u64>,
+}
+
+impl FairPicker {
+    pub fn new(weights: &[u32]) -> Self {
+        Self { weights: weights.to_vec(), served: vec![0; weights.len()] }
+    }
+
+    // TODO: skip empty classes, compare served * 1000 / weight, tie-break
+    // on the lower index, then increment the winner.
+    pub fn next_class(&mut self, _depth: &[usize]) -> Option<usize> {
+        None
+    }
+}`,
+        hint: "Track the best (class, cost) pair. On ties keep the earlier class. Multiply before dividing to keep integer precision, and skip a class when its depth is zero so empty shares flow to busy classes.",
+        solution: `pub struct FairPicker {
+    weights: Vec<u32>,
+    served: Vec<u64>,
+}
+
+impl FairPicker {
+    pub fn new(weights: &[u32]) -> Self {
+        assert!(!weights.is_empty());
+        assert!(weights.iter().all(|w| *w > 0));
+        Self { weights: weights.to_vec(), served: vec![0; weights.len()] }
+    }
+
+    pub fn next_class(&mut self, depth: &[usize]) -> Option<usize> {
+        assert_eq!(depth.len(), self.weights.len());
+        let mut best: Option<(usize, u64)> = None;
+
+        for (class, weight) in self.weights.iter().enumerate() {
+            if depth[class] == 0 {
+                continue;
+            }
+            let cost = self.served[class] * 1_000 / u64::from(*weight);
+            match best {
+                Some((_, best_cost)) if cost >= best_cost => {}
+                _ => best = Some((class, cost)),
+            }
+        }
+
+        let (class, _) = best?;
+        self.served[class] += 1;
+        Some(class)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn splits_three_to_one_over_eight_picks() {
+        let mut picker = FairPicker::new(&[3, 1]);
+        let depth = [10, 10];
+        let mut counts = [0usize; 2];
+        for _ in 0..8 {
+            let class = picker.next_class(&depth).unwrap();
+            counts[class] += 1;
+        }
+        assert_eq!(counts, [6, 2]);
+    }
+
+    #[test]
+    fn empty_classes_lend_their_share() {
+        let mut picker = FairPicker::new(&[3, 1]);
+        assert_eq!(picker.next_class(&[0, 5]), Some(1));
+        assert_eq!(picker.next_class(&[0, 0]), None);
+    }
+}`,
+      },
+      production: [
+        "At most three priority classes exist, each with a written latency SLA and a named owner.",
+        "Bulk work has reserved capacity, so it degrades under load instead of starving.",
+        "Queue wait time is measured per class, not just in aggregate.",
+        "Long-running work has its own lane or its own worker pool, so it cannot block short jobs.",
+        "Priority ordering is stable within a class, backed by a durable sequence, not an in-memory counter.",
+      ],
+      crates: ["tokio", "tokio-util", "tracing"],
+      github: [
+        { name: "tokio-rs/tokio - queues, semaphores, and task scheduling", url: "https://github.com/tokio-rs/tokio" },
+      ],
+      pitfall:
+        "Deriving Ord on a priority-only struct and pushing it into BinaryHeap: equal priorities come out in an arbitrary order, which surfaces later as an unreproducible reordering bug in a fairness-sensitive pipeline.",
+      questions: [
+        {
+          q: "Under constant high-priority load, what happens to a single strict-priority queue?",
+          options: [
+            "Low-priority jobs are served at a slower but steady rate",
+            "Low-priority jobs never run, and their queue grows without bound",
+            "The scheduler promotes low-priority jobs automatically",
+            "High-priority jobs start failing once the queue is large",
+          ],
+          answer: 1,
+          explain: "Strict priority has no fairness term. Without aging or reserved capacity, the low class only runs when the high class is empty, which under sustained load never happens.",
+        },
+        {
+          q: "Which change removes head-of-line blocking for 20 ms notifications stuck behind a ten-minute report?",
+          options: [
+            "Increasing worker count for the same FIFO queue",
+            "Giving short jobs a separate lane with its own concurrency budget",
+            "Raising the report's priority so it finishes sooner",
+            "Lowering the notification timeout",
+          ],
+          answer: 1,
+          explain: "The blocked job is already admitted ahead of the notifications in the same FIFO. Adding workers helps only if the long job does not occupy them all; a separate lane bounds the delay structurally.",
+        },
+        {
+          q: "A FairPicker shows weight 3 for interactive and 1 for bulk, but bulk gets nothing for an hour. What is the likely bug?",
+          options: [
+            "The weights are inverted",
+            "The served counters are being reset every tick, so the ratio never accumulates",
+            "The picker is not work-conserving",
+            "BinaryHeap ordering is unstable",
+          ],
+          answer: 1,
+          explain: "WFQ needs accumulated service to compute the ratio. Resetting counters makes the class with the lowest index win every tick, which starves the other classes regardless of weight.",
+        },
+      ],
+      quickbytes: [
+        "Reserve capacity for bulk work instead of relying on priority to be fair.",
+        "Keep queue time per class; aggregate throughput hides starvation.",
+        "Give equal-priority jobs a durable sequence number, or their order is undefined.",
+      ],
+      resources: [
+        {
+          title: "sched(7): Linux scheduling policies and starvation",
+          url: "https://man7.org/linux/man-pages/man7/sched.7.html",
+          kind: "docs",
+        },
+        {
+          title: "tokio::sync: semaphores and bounded channels for lanes",
+          url: "https://docs.rs/tokio/latest/tokio/sync/index.html",
+          kind: "docs",
+        },
+        {
+          title: "tokio repository: runtime scheduling internals",
+          url: "https://github.com/tokio-rs/tokio",
+          kind: "repo",
+        },
+        {
+          title: "InfoQ: queueing theory and fair scheduling in production",
+          url: "https://www.youtube.com/@InfoQ",
+          kind: "video",
+        },
+      ],
+    },
+    {
+      id: "p16",
+      title: "Crash-only design and idempotent restarts",
+      minutes: 60,
+      level: "industry",
+      goal: "Delete the special shutdown path: make every stop look like a crash, every start a recovery, and prove recovery is bounded and repeatable.",
+      sections: [
+        {
+          h: "Two stop paths means one is untested",
+          p: [
+            "Most services have a graceful path that runs on SIGTERM and a crash path that runs when the process dies. The graceful path is exercised on deploys; the crash path is exercised constantly and never deliberately. Any correctness logic that lives only in the graceful path is logic you cannot trust.",
+            "Crash-only design collapses them: there is one way to stop, which is to die, and one way to start, which is to recover. Candea and Fox argued in 2003 that this produces simpler code, because recovery is exercised on every boot rather than on the rare clean shutdown.",
+          ],
+          code: `// The same entry point for a deploy, an OOM kill, and kill -9.
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let pool = db::connect().await?;
+
+    // Recovery runs before readiness, on every boot, with no fast path.
+    let recovered = recover(&pool).await?;
+    tracing::info!(recovered, "startup reconciliation complete");
+
+    ready.set(true);
+    serve(pool).await
+}`,
+          tip: "If your shutdown handler does something the crash path does not, you have found either a correctness bug or a latency optimisation. Decide which, and label it.",
+        },
+        {
+          h: "Startup must reconcile, not assume",
+          p: [
+            "On boot the process knows nothing about what the previous instance left behind: leases held by dead workers, half-written temp files, rows marked running with no owner. Recovery has to reconcile that state before accepting work, and recovery has to be idempotent, because a boot loop will run it repeatedly.",
+            "Keep recovery bounded. A million stale rows must not turn a 200 ms boot into a ten-minute one; cap the batch and continue in the background, but do not report ready until the state that affects correctness is consistent. Then make the whole thing repeatable: running it twice must produce the same state.",
+          ],
+          code: `use sqlx::PgPool;
+
+pub async fn recover(pool: &PgPool) -> sqlx::Result<u64> {
+    // Expired leases belong to dead workers; put the work back.
+    let requeued = sqlx::query(
+        "UPDATE jobs
+            SET status = 'queued', lease_until = NULL, worker_id = NULL
+          WHERE status = 'running'
+            AND lease_until < now()
+            AND attempts < max_attempts",
+    )
+    .execute(pool)
+    .await?
+    .rows_affected();
+
+    // Exhausted jobs fail deterministically instead of retrying forever.
+    sqlx::query(
+        "UPDATE jobs SET status = 'dead'
+          WHERE status = 'running' AND lease_until < now() AND attempts >= max_attempts",
+    )
+    .execute(pool)
+    .await?;
+
+    Ok(requeued) // a second call returns 0: recovery is idempotent
+}`,
+          tip: "Run recovery in a test against a database that already contains the state it produces. The second run returning zero is the assertion that proves idempotency.",
+        },
+        {
+          h: "Prove it with kill -9",
+          p: [
+            "A crash-only service is only as good as the crashes you have tested. Send SIGKILL at random points during a job, restart, and assert the invariants: no acknowledged job lost, no effect applied twice, recovery under a fixed deadline. Without that test, crash-only is a philosophy rather than a property.",
+            "Instrument recovery itself. Duration, rows reconciled, and failures are metrics, because a recovery that silently takes four minutes is a restart loop that never becomes ready while the orchestrator keeps killing it. Treat a slow recovery as an incident of its own: it burns the platform's restart budget and converts one crash into a permanent crash loop.",
+          ],
+          list: [
+            "Chaos test kills the process mid-job and asserts the job is re-executed or completed, never lost",
+            "Duplicate effects are asserted with a dedupe key, not assumed",
+            "Recovery duration has an SLO and an alert, because it gates readiness",
+            "Boot loops are capped by the platform's backoff, and recovery handles being run twice",
+          ],
+          tip: "kill -9 in staging is cheap. Discovering the missing recovery branch during a production OOM is not.",
+        },
+        {
+          h: "What crash-only does not excuse",
+          p: [
+            "Crash-only is about correctness, not about abandoning latency work. Flushing a batch on a normal stop is still worth doing, because it saves work; it just must not be the only place the data becomes durable. If a clean stop can lose data that a crash would not, the design is inverted.",
+            "You also still need ordering: write the file and fsync before you mark the job done, and commit the dedupe row with the effect. Crash-only changes where recovery lives, not what durability requires. The test is simple: pull the power at the worst moment and ask what the next boot can prove.",
+          ],
+          tip: "Crash-only plus an un-fsynced write is just data loss with a design essay attached. Durability is a separate property; keep them separate in reviews.",
+        },
+      ],
+      exercise: {
+        prompt:
+          "Implement recover(pool): requeue jobs whose lease expired and whose attempts remain, mark exhausted ones dead, and return the number requeued. A second call on the same state must return zero.",
+        starter: `use sqlx::PgPool;
+
+// TODO: one UPDATE for expired leases under max_attempts, one for the
+// exhausted rows, return rows_affected from the first.
+pub async fn recover(_pool: &PgPool) -> sqlx::Result<u64> {
+    Ok(0)
+}`,
+        hint: "Both statements filter on status = 'running' AND lease_until < now(). The first also requires attempts < max_attempts; the second is its complement. Return rows_affected() from the first UPDATE.",
+        solution: `use sqlx::PgPool;
+
+pub async fn recover(pool: &PgPool) -> sqlx::Result<u64> {
+    let requeued = sqlx::query(
+        "UPDATE jobs
+            SET status = 'queued', lease_until = NULL, worker_id = NULL
+          WHERE status = 'running'
+            AND lease_until < now()
+            AND attempts < max_attempts",
+    )
+    .execute(pool)
+    .await?
+    .rows_affected();
+
+    sqlx::query(
+        "UPDATE jobs SET status = 'dead'
+          WHERE status = 'running' AND lease_until < now() AND attempts >= max_attempts",
+    )
+    .execute(pool)
+    .await?;
+
+    Ok(requeued)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    #[ignore = "requires DATABASE_URL and a migrated schema"]
+    async fn recovery_is_idempotent() {
+        let pool = PgPool::connect(&std::env::var("DATABASE_URL").unwrap())
+            .await
+            .unwrap();
+        let first = recover(&pool).await.unwrap();
+        let second = recover(&pool).await.unwrap();
+        assert_eq!(second, 0, "second recovery must find nothing to do");
+        let _ = first;
+    }
+}`,
+      },
+      production: [
+        "Every boot runs the same reconciliation path; there is no clean-shutdown-only correctness logic.",
+        "Recovery is idempotent and covered by a test that runs it twice.",
+        "Recovery duration and reconciled row counts are metrics, and readiness waits for them.",
+        "A kill -9 chaos test asserts no lost acknowledged work and no duplicated effect.",
+        "Durability order (write, fsync, mark done) is reviewed separately from crash-only claims.",
+      ],
+      crates: ["sqlx", "tokio", "tracing"],
+      github: [
+        { name: "launchbadge/sqlx - transactions used by recovery paths", url: "https://github.com/launchbadge/sqlx" },
+      ],
+      pitfall:
+        "Putting the requeue of stale leases in the SIGTERM handler: an OOM kill or a node failure skips it entirely, and those are the failures that actually happen.",
+      questions: [
+        {
+          q: "Why does crash-only design make recovery more reliable rather than less?",
+          options: [
+            "It removes the need for transactions",
+            "Recovery runs on every boot, so it is exercised constantly instead of only after clean shutdowns",
+            "It makes crashes impossible by preventing restarts",
+            "It moves state into memory so there is nothing to reconcile",
+          ],
+          answer: 1,
+          explain: "A path exercised on every start is tested by every deploy, crash, and OOM kill. A graceful-shutdown-only path is exercised rarely and degrades silently.",
+        },
+        {
+          q: "Recovery returns 0 on its second run. What does that demonstrate?",
+          options: [
+            "The database is empty",
+            "Recovery is idempotent: the first run left no state that the second run acts on",
+            "The pool has no connections",
+            "The first run failed silently",
+          ],
+          answer: 1,
+          explain: "Idempotency means applying the operation twice has the same effect as once. The second run finding nothing is the observable proof.",
+        },
+        {
+          q: "Which requirement does crash-only design NOT remove?",
+          options: [
+            "Ordering writes and fsync before marking a job done",
+            "The need for a readiness endpoint",
+            "The need for bounded recovery",
+            "The need for restart backoff",
+          ],
+          answer: 0,
+          explain: "Crash-only changes where recovery lives, not what durability requires. An un-fsynced write is lost regardless of how principled the restart path is.",
+        },
+      ],
+      quickbytes: [
+        "If only the SIGTERM path does it, an OOM kill will skip it. Move it to recovery.",
+        "Recovery must be idempotent; run it twice in a test and assert the second call is a no-op.",
+        "Cap recovery work so a large backlog cannot turn a fast boot into a restart loop.",
+      ],
+      resources: [
+        {
+          title: "Crash-Only Software (Candea and Fox, HotOS 2003)",
+          url: "https://www.usenix.org/conference/hotos-ix/crash-only-software",
+          kind: "paper",
+        },
+        {
+          title: "sqlx: transactions and query execution",
+          url: "https://docs.rs/sqlx/latest/sqlx/",
+          kind: "docs",
+        },
+        {
+          title: "Kubernetes pod lifecycle: restarts, backoff, and termination",
+          url: "https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/",
+          kind: "docs",
+        },
+        {
+          title: "InfoQ: designing for failure and recovery",
+          url: "https://www.youtube.com/@InfoQ",
+          kind: "video",
+        },
+        {
+          title: "apalis: durable job queues with retries and recovery",
+          url: "https://github.com/apalis-dev/apalis",
+          kind: "repo",
+        },
+      ],
+    },
+    {
+      id: "p17",
+      title: "Per-worker resource accounting",
+      minutes: 70,
+      level: "industry",
+      goal: "Attribute CPU, memory, and process counts to each job from cgroup v2 counters and rusage, and turn those numbers into per-class cost metrics.",
+      sections: [
+        {
+          h: "Read the counters the kernel already keeps",
+          p: [
+            "You rarely need to sample /proc yourself. A cgroup per job exposes cpu.stat with usage_usec, memory.current, memory.peak, pids.current, and memory.events with an oom_kill count. Reading them is four small file reads, and the kernel maintains them whether or not you look.",
+            "The important property is that they are charged to the group, not the process: a job that forks four compilers is accounted as one workload, and its children cannot escape the accounting. That is exactly what per-job cost needs, and it is why lesson p07 used the same files for limits.",
+          ],
+          code: `use std::io;
+use std::path::Path;
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct Usage {
+    pub cpu_usec: u64,
+    pub memory_peak_bytes: u64,
+    pub pids: u64,
+    pub oom_kills: u64,
+}
+
+fn read_u64(path: &Path) -> io::Result<u64> {
+    Ok(std::fs::read_to_string(path)?.trim().parse()?)
+}
+
+fn read_key(path: &Path, key: &str) -> io::Result<u64> {
+    let text = std::fs::read_to_string(path)?;
+    for line in text.lines() {
+        if let Some((name, value)) = line.split_once(' ') {
+            if name == key {
+                return value.trim().parse().map_err(|err| {
+                    io::Error::new(io::ErrorKind::InvalidData, err)
+                });
+            }
+        }
+    }
+    Err(io::Error::other(format!("missing key {key}")))
+}
+
+pub fn read_usage(cgroup: &Path) -> io::Result<Usage> {
+    Ok(Usage {
+        cpu_usec: read_key(&cgroup.join("cpu.stat"), "usage_usec")?,
+        memory_peak_bytes: read_u64(&cgroup.join("memory.peak"))?,
+        pids: read_u64(&cgroup.join("pids.current"))?,
+        oom_kills: read_key(&cgroup.join("memory.events"), "oom_kill")?,
+    })
+}`,
+          tip: "memory.peak exists since Linux 5.19. On older kernels fall back to sampling memory.current, and say so in the cost model, because a sampled peak under-reports short spikes.",
+        },
+        {
+          h: "Counters need deltas and a lifetime",
+          p: [
+            "usage_usec is monotonic for the life of the cgroup, so a job's cost is the value at exit, not the value at any sample. If you reuse a cgroup across jobs, subtract the previous reading; if you create one cgroup per job, read it once before deleting it.",
+            "Sampling has a resolution problem: a job that runs for 40 ms will be sampled zero or one times. Read the counters at exit instead of polling, and keep polling only for long-running jobs where you want a live gauge. Delete the cgroup only after the read, or the numbers disappear with it.",
+          ],
+          code: `impl Usage {
+    /// Usage between two readings of the same cgroup.
+    pub fn delta(self, later: Usage) -> Usage {
+        Usage {
+            cpu_usec: later.cpu_usec.saturating_sub(self.cpu_usec),
+            // Peak is a high-water mark, so the later value is the answer.
+            memory_peak_bytes: later.memory_peak_bytes.max(self.memory_peak_bytes),
+            pids: later.pids,
+            oom_kills: later.oom_kills.saturating_sub(self.oom_kills),
+        }
+    }
+}`,
+          tip: "Cost per job is CPU-seconds times rate plus GB-seconds times rate. Those two units survive instance changes; a raw percentage does not.",
+        },
+        {
+          h: "getrusage is a trap for per-job numbers",
+          p: [
+            "getrusage(RUSAGE_CHILDREN) looks like a per-child API and is not one: it sums CPU and takes the maximum RSS across every child you have ever reaped. Reading it before and after a job gives you the whole process's history, not that job's cost.",
+            "wait4 returns rusage for the specific child, which is the right primitive if you need per-job numbers without cgroups. It also gives you the exact CPU time even for a 5 ms child. Use it when a cgroup per job is too heavy; use cgroups when a job spawns a tree.",
+          ],
+          list: [
+            "RUSAGE_CHILDREN: aggregate of all reaped children, never per job",
+            "wait4: rusage for one child, including grandchildren only if they were reaped by that child",
+            "cgroup: whole subtree, so it captures escaped and double-forked descendants",
+            "cpu.stat nr_throttled counts quota throttling, which is a latency signal, not usage",
+          ],
+          tip: "If your CPU numbers look impossible, check units first: rusage reports microseconds as timeval, cgroup reports microseconds as integers, and quotas are in microseconds per period.",
+        },
+        {
+          h: "From bytes to a budget",
+          p: [
+            "Billing or quota needs a small number of normalised units, not raw counters. CPU-seconds, GB-seconds of peak memory, and process-count peaks cover most abuse. Aggregate into histograms per job class and per tenant; a single average across all jobs tells you nothing actionable.",
+            "Beware page cache. memory.current includes file-backed pages the kernel can reclaim, so a job that reads a 2 GB file appears to use 2 GB when its anonymous memory is 30 MB. Read memory.stat and bill anon plus shmem, and treat file pages as cache pressure rather than usage.",
+          ],
+          tip: "Publish the cost model in the job class definition. A quota that cannot be explained from published numbers gets escalated, and the escalation is always correct.",
+        },
+      ],
+      exercise: {
+        prompt:
+          "Implement read_usage, which parses cpu.stat usage_usec, memory.peak, pids.current, and memory.events oom_kill from a cgroup directory, plus delta, which returns the change between two readings of the same cgroup.",
+        starter: `use std::io;
+use std::path::Path;
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct Usage {
+    pub cpu_usec: u64,
+    pub memory_peak_bytes: u64,
+    pub pids: u64,
+    pub oom_kills: u64,
+}
+
+pub fn read_usage(_cgroup: &Path) -> io::Result<Usage> {
+    Ok(Usage::default())
+}
+
+impl Usage {
+    pub fn delta(self, _later: Usage) -> Usage {
+        self
+    }
+}`,
+        hint: "Split each key-value file on a single space. cpu.stat and memory.events are multi-key, memory.peak and pids.current are single values. In delta use saturating_sub for counters and max for the peak.",
+        solution: `use std::io;
+use std::path::Path;
+
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub struct Usage {
+    pub cpu_usec: u64,
+    pub memory_peak_bytes: u64,
+    pub pids: u64,
+    pub oom_kills: u64,
+}
+
+fn read_u64(path: &Path) -> io::Result<u64> {
+    Ok(std::fs::read_to_string(path)?.trim().parse()?)
+}
+
+fn read_key(path: &Path, key: &str) -> io::Result<u64> {
+    let text = std::fs::read_to_string(path)?;
+    for line in text.lines() {
+        if let Some((name, value)) = line.split_once(' ') {
+            if name == key {
+                return value
+                    .trim()
+                    .parse()
+                    .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err));
+            }
+        }
+    }
+    Err(io::Error::other(format!("missing key {key}")))
+}
+
+pub fn read_usage(cgroup: &Path) -> io::Result<Usage> {
+    Ok(Usage {
+        cpu_usec: read_key(&cgroup.join("cpu.stat"), "usage_usec")?,
+        memory_peak_bytes: read_u64(&cgroup.join("memory.peak"))?,
+        pids: read_u64(&cgroup.join("pids.current"))?,
+        oom_kills: read_key(&cgroup.join("memory.events"), "oom_kill")?,
+    })
+}
+
+impl Usage {
+    pub fn delta(self, later: Usage) -> Usage {
+        Usage {
+            cpu_usec: later.cpu_usec.saturating_sub(self.cpu_usec),
+            memory_peak_bytes: later.memory_peak_bytes.max(self.memory_peak_bytes),
+            pids: later.pids,
+            oom_kills: later.oom_kills.saturating_sub(self.oom_kills),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn delta_is_counter_aware() {
+        let before = Usage { cpu_usec: 100, memory_peak_bytes: 50, pids: 2, oom_kills: 0 };
+        let after = Usage { cpu_usec: 350, memory_peak_bytes: 40, pids: 3, oom_kills: 1 };
+        let d = before.delta(after);
+        assert_eq!(d.cpu_usec, 250);
+        assert_eq!(d.memory_peak_bytes, 50); // peak never decreases
+        assert_eq!(d.oom_kills, 1);
+    }
+}`,
+      },
+      production: [
+        "Each job class has a cost unit (CPU-seconds and GB-seconds) published with its quota.",
+        "Accounting reads cgroup counters at exit, before the cgroup directory is removed.",
+        "memory.stat anon and shmem drive the memory number; page cache is reported separately.",
+        "A job that exceeds its p99 cost triggers a review, not an automatic kill.",
+        "Per-class histograms exist; a single fleet-wide average is not treated as a cost signal.",
+      ],
+      crates: ["tokio", "metrics", "tracing", "libc"],
+      github: [
+        { name: "torvalds/linux - cgroup v2 implementation and documentation", url: "https://github.com/torvalds/linux" },
+      ],
+      pitfall:
+        "Reading memory.current at process exit to bill a job: the sample is taken after the work is done and misses the peak, so a memory abuser is billed as a well-behaved job.",
+      questions: [
+        {
+          q: "Why is getrusage(RUSAGE_CHILDREN) unsuitable for per-job CPU accounting?",
+          options: [
+            "It only reports the current process, not children",
+            "It aggregates every child ever reaped, including those from earlier jobs",
+            "It resets after each call",
+            "It is not available on Linux",
+          ],
+          answer: 1,
+          explain: "RUSAGE_CHILDREN is cumulative for all waited children. Use wait4 for one child's rusage, or a cgroup per job for a whole subtree.",
+        },
+        {
+          q: "A job reads a 2 GB file and shows 2 GB in memory.current while its heap is 30 MB. What is happening?",
+          options: [
+            "The kernel charges page cache to the cgroup; memory.stat file accounts for it",
+            "The job leaked 2 GB of anonymous memory",
+            "memory.current is in kilobytes, so it is really 2 MB",
+            "The cgroup controller is double-counting shared libraries",
+          ],
+          answer: 0,
+          explain: "File-backed pages are charged to the cgroup and are reclaimable. Billing should use anon plus shmem and treat file pages as cache pressure.",
+        },
+        {
+          q: "cpu.stat shows usage_usec flat but nr_throttled climbing. What does that mean?",
+          options: [
+            "The job is idle and should be stopped",
+            "The job is hitting its cpu.max quota and being throttled, so it is slower than its CPU usage suggests",
+            "The CPU is offline",
+            "The cgroup controller is not enabled",
+          ],
+          answer: 1,
+          explain: "Throttling means the quota, not the workload, is limiting progress. Latency investigations should check nr_throttled before blaming the application.",
+        },
+      ],
+      quickbytes: [
+        "Read cgroup counters at exit, before deleting the cgroup directory.",
+        "Bill anon plus shmem; page cache is reclaimable and inflates memory.current.",
+        "nr_throttled is a latency signal; usage_usec is a cost signal. Do not conflate them.",
+      ],
+      resources: [
+        {
+          title: "Control Group v2: cpu.stat, memory.current, memory.peak",
+          url: "https://docs.kernel.org/admin-guide/cgroup-v2.html",
+          kind: "docs",
+        },
+        {
+          title: "getrusage(2): RUSAGE_SELF and RUSAGE_CHILDREN semantics",
+          url: "https://man7.org/linux/man-pages/man2/getrusage.2.html",
+          kind: "docs",
+        },
+        {
+          title: "tokio::task::spawn_blocking for reading counters off the reactor",
+          url: "https://docs.rs/tokio/latest/tokio/task/fn.spawn_blocking.html",
+          kind: "docs",
+        },
+        {
+          title: "CNCF: resource management and cost attribution talks",
+          url: "https://www.youtube.com/@CNCF",
+          kind: "video",
+        },
+        {
+          title: "metrics-rs/metrics: emitting the cost gauges you collect",
+          url: "https://github.com/metrics-rs/metrics",
+          kind: "repo",
+        },
+      ],
+    },
+    {
+      id: "p18",
+      title: "Sandboxing child processes with seccomp",
+      minutes: 85,
+      level: "industry",
+      goal: "Install a seccomp-bpf allowlist in the child before exec, deny unlisted syscalls with a deliberate errno, and know what seccomp cannot contain.",
+      sections: [
+        {
+          h: "An allowlist, checked against the architecture",
+          p: [
+            "A seccomp filter is a BPF program over the syscall number and arguments. The kernel documentation is blunt: prefer an allowlist, because a denylist has to be updated every time a dangerous syscall is added, and any value that can be re-expressed slips past it.",
+            "Always check the architecture field first. On x86-64 the same processor can issue the x32 ABI, where syscall numbers carry a high bit; a filter that only compares numbers can be bypassed by switching ABI. seccompiler generates the arch check for you, which is a good reason to use it rather than hand-written BPF.",
+          ],
+          code: `use seccompiler::{SeccompCmpArgLen, SeccompCmpOp, SeccompCondition, SeccompRule};
+use std::collections::BTreeMap;
+
+/// Allowlist: an empty rule vector matches the syscall whatever its args.
+pub fn allowlist(allowed: &[i64]) -> BTreeMap<i64, Vec<SeccompRule>> {
+    allowed.iter().map(|nr| (*nr, Vec::new())).collect()
+}
+
+/// fcntl is allowed only for F_GETFD. Conditions inside one rule are ANDed;
+/// rules for the same syscall are ORed.
+pub fn guarded() -> BTreeMap<i64, Vec<SeccompRule>> {
+    let getfd = SeccompCondition::new(
+        1, // argument index: fcntl(fd, cmd, ...)
+        SeccompCmpArgLen::Dword,
+        SeccompCmpOp::Eq,
+        libc::F_GETFD as u64,
+    )
+    .expect("valid condition");
+
+    let mut rules = BTreeMap::new();
+    rules.insert(libc::SYS_fcntl, vec![SeccompRule::new(vec![getfd]).expect("valid rule")]);
+    rules
+}`,
+          tip: "Build the policy from strace, not imagination: `strace -f -c ./job` lists what actually gets called, and the allowlist is that list minus anything you can remove.",
+        },
+        {
+          h: "Install before exec, with no new privileges",
+          p: [
+            "Filters are inherited across fork and preserved across execve, so the practical pattern is a small launcher that installs the filter and then execs the untrusted binary. Installing in the child after exec is too late, and installing in the parent constrains the supervisor instead.",
+            "The kernel requires either CAP_SYS_ADMIN or no_new_privs before an unprivileged filter is accepted. Set PR_SET_NO_NEW_PRIVS first; it also prevents setuid binaries from gaining privilege later, which is the point. Then apply the filter with TSYNC so existing threads cannot escape it.",
+          ],
+          code: `use seccompiler::{apply_filter_all_threads, SeccompAction, SeccompFilter, SeccompRule};
+use std::collections::BTreeMap;
+
+/// Linux only. Allow exactly these syscall numbers; deny the rest.
+pub fn install(allowed: &[i64]) -> Result<(), Box<dyn std::error::Error>> {
+    let rules: BTreeMap<i64, Vec<SeccompRule>> =
+        allowed.iter().map(|nr| (*nr, Vec::new())).collect();
+
+    // mismatch: not in the list -> EPERM. match: in the list -> allow.
+    let filter: seccompiler::BpfProgram = SeccompFilter::new(
+        rules,
+        SeccompAction::Errno(libc::EPERM as u32),
+        SeccompAction::Allow,
+        std::env::consts::ARCH.try_into()?,
+    )?
+    .try_into()?;
+
+    // Required before installing a filter without CAP_SYS_ADMIN.
+    let rc = unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) };
+    if rc != 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+
+    // TSYNC applies the filter to every thread, not just this one.
+    apply_filter_all_threads(&filter)?;
+    Ok(())
+}`,
+          tip: "seccompiler supports x86_64, aarch64, and riscv64, little-endian only. On other architectures the crate does not build, so gate the dependency by target in Cargo.toml.",
+        },
+        {
+          h: "EPERM beats SIGSYS for policy violations",
+          p: [
+            "The default action for an unlisted syscall is your choice. Killing the process makes a policy gap look like a crash: the exit status is SIGSYS, the log has no reason, and the on-call engineer debugs the application instead of the sandbox. Returning EPERM lets the child report a normal error that names the operation.",
+            "Use SECCOMP_RET_LOG during rollout to record instead of block, and KILL_PROCESS for a small set of syscalls that must never run. Layered filters take the highest-precedence action across all of them, so a permissive filter cannot widen a stricter one.",
+          ],
+          code: `use seccompiler::{SeccompAction, SeccompFilter};
+use std::collections::BTreeMap;
+
+/// Rollout mode: log what would be denied and let it through, then read the
+/// audit trail before switching the mismatch action to Errno.
+pub fn probe(
+    rules: BTreeMap<i64, Vec<seccompiler::SeccompRule>>,
+) -> Result<seccompiler::BpfProgram, Box<dyn std::error::Error>> {
+    let filter = SeccompFilter::new(
+        rules,
+        SeccompAction::Log,   // not listed: log, then allow
+        SeccompAction::Allow, // listed: allow
+        std::env::consts::ARCH.try_into()?,
+    )?;
+    Ok(filter.try_into()?)
+}
+
+// Only actions named in this sysctl are actually logged.
+pub fn logged_actions() -> std::io::Result<String> {
+    std::fs::read_to_string("/proc/sys/kernel/seccomp/actions_logged")
+}`,
+          tip: "A SIGSYS with no core dump and no panic message is a seccomp kill, not a Rust bug. Check `Seccomp:` in /proc/<pid>/status before reading the application logs.",
+        },
+        {
+          h: "Seccomp is not a sandbox",
+          p: [
+            "The kernel's own documentation says syscall filtering is not a sandbox. The filter cannot dereference pointers, so it cannot see file paths, hostnames, or which file a write targets. Blocking open does not stop openat, and blocking connect does not stop a different socket family.",
+            "Layer it. A dedicated uid bounds what the filesystem permissions allow, mount namespaces bound what is visible, Landlock bounds path access for unprivileged processes, and cgroups bound resources. seccomp removes kernel attack surface that nothing else can. Each layer answers a different question, and the job runner needs all of them.",
+          ],
+          list: [
+            "seccomp: which syscalls, with what scalar arguments",
+            "Landlock: which paths, for unprivileged processes",
+            "namespaces: what is visible at all",
+            "uid and capabilities: what permission checks allow",
+            "cgroups: how much CPU, memory, and how many processes",
+          ],
+          tip: "Test the policy with the real workload, not with a hello-world: dynamically linked binaries and DNS resolution use far more syscalls than a static Rust binary.",
+        },
+      ],
+      exercise: {
+        prompt:
+          "Implement install(allowed): build an allowlist filter that returns EPERM for unlisted syscalls, set PR_SET_NO_NEW_PRIVS, and apply it to all threads. Gate the module on Linux and mark the test ignored, since it must run in a disposable process.",
+        starter: `// Linux-only module.
+pub fn install(_allowed: &[i64]) -> Result<(), Box<dyn std::error::Error>> {
+    Ok(())
+}
+
+fn main() {
+    // install(&[libc::SYS_read, libc::SYS_write, libc::SYS_exit_group]).unwrap();
+}`,
+        hint: "SeccompFilter::new takes (rules: BTreeMap<i64, Vec<SeccompRule>>, mismatch_action, match_action, arch). Use SeccompAction::Errno(libc::EPERM as u32) and SeccompAction::Allow, then apply_filter_all_threads(&filter).",
+        solution: `use seccompiler::{apply_filter_all_threads, SeccompAction, SeccompFilter, SeccompRule};
+use std::collections::BTreeMap;
+
+pub fn install(allowed: &[i64]) -> Result<(), Box<dyn std::error::Error>> {
+    let rules: BTreeMap<i64, Vec<SeccompRule>> =
+        allowed.iter().map(|nr| (*nr, Vec::new())).collect();
+
+    let filter: seccompiler::BpfProgram = SeccompFilter::new(
+        rules,
+        SeccompAction::Errno(libc::EPERM as u32),
+        SeccompAction::Allow,
+        std::env::consts::ARCH.try_into()?,
+    )?
+    .try_into()?;
+
+    let rc = unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) };
+    if rc != 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+
+    apply_filter_all_threads(&filter)?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "installs a process-wide filter; run in a disposable process"]
+    fn denies_unlisted_syscalls() {
+        install(&[libc::SYS_read, libc::SYS_write, libc::SYS_exit_group])
+            .expect("filter installs");
+        // A subsequent unlisted syscall returns EPERM (or kills if policy says so);
+        // assert in a child process, never in the test harness itself.
+    }
+}`,
+      },
+      production: [
+        "Every untrusted job runs under an allowlist filter installed by a launcher before exec.",
+        "PR_SET_NO_NEW_PRIVS is set before the filter, and the job runs as a dedicated non-root uid.",
+        "Policy violations return EPERM and are counted, rather than appearing as SIGSYS crashes.",
+        "The policy is generated from observed strace output and regenerated when the runtime changes.",
+        "seccomp is combined with namespaces, Landlock, and cgroups; no single layer is described as a sandbox.",
+      ],
+      crates: ["seccompiler", "libc", "nix", "tracing"],
+      github: [
+        { name: "rust-vmm/seccompiler - seccomp-bpf filters in Rust", url: "https://github.com/rust-vmm/seccompiler" },
+        { name: "firecracker-microvm/firecracker - per-thread seccomp in production", url: "https://github.com/firecracker-microvm/firecracker" },
+      ],
+      pitfall:
+        "Blocking open because strace showed open, while the binary actually calls openat: the filter allows the real syscall, and the policy looks enforced without being enforced.",
+      questions: [
+        {
+          q: "Why must a seccomp filter check the architecture field before the syscall number?",
+          options: [
+            "Because syscall numbers are the same on every ABI of one architecture",
+            "Because one architecture can use several ABIs, and the same number means different calls in each",
+            "Because the architecture field carries the process id",
+            "Because BPF cannot compare integers without it",
+          ],
+          answer: 1,
+          explain: "On x86-64, x32 syscalls carry a high bit in the number. A number-only filter can be bypassed by issuing the other ABI's call, so the arch check is mandatory.",
+        },
+        {
+          q: "What is the advantage of SECCOMP_RET_ERRNO over killing the process?",
+          options: [
+            "It is faster at runtime",
+            "The child gets a normal error it can report, instead of a SIGSYS crash that looks like an application bug",
+            "It automatically logs to journald",
+            "It disables the filter for that syscall",
+          ],
+          answer: 1,
+          explain: "Errno keeps the failure attributable: the job logs a denied operation, and the policy gap is visible. A kill produces SIGSYS with no context.",
+        },
+        {
+          q: "A filter allows open and denies execve. Which attack remains possible?",
+          options: [
+            "Nothing: denying execve prevents all code execution",
+            "Opening files by path, because seccomp cannot inspect pointer arguments or stop openat",
+            "Forking new processes, because fork also needs execve",
+            "Reading memory outside the process",
+          ],
+          answer: 1,
+          explain: "Seccomp sees scalar arguments, not pointed-to strings, and openat is a different syscall. Filesystem scope needs Landlock or mount namespaces.",
+        },
+      ],
+      quickbytes: [
+        "Allowlist plus arch check, or you have a denylist with a known bypass.",
+        "Set PR_SET_NO_NEW_PRIVS before installing an unprivileged filter.",
+        "Deny with EPERM during rollout; kill only for syscalls that must never run.",
+      ],
+      resources: [
+        {
+          title: "Seccomp BPF: design, return values, and pitfalls",
+          url: "https://docs.kernel.org/userspace-api/seccomp_filter.html",
+          kind: "docs",
+        },
+        {
+          title: "seccomp(2): actions, flags, and TSYNC",
+          url: "https://man7.org/linux/man-pages/man2/seccomp.2.html",
+          kind: "docs",
+        },
+        {
+          title: "seccompiler: filters, BpfProgram, apply_filter_all_threads",
+          url: "https://docs.rs/seccompiler/latest/seccompiler/",
+          kind: "docs",
+        },
+        {
+          title: "Firecracker: seccomp policy per thread in a production VMM",
+          url: "https://github.com/firecracker-microvm/firecracker",
+          kind: "repo",
+        },
+        {
+          title: "Sandboxing: Foolproof Boundaries vs Unbounded Foolishness",
+          url: "https://dl.acm.org/doi/pdf/10.1145/3733699",
+          kind: "paper",
+        },
+      ],
+    },
+    {
+      id: "p19",
+      title: "Process metrics and health endpoints",
+      minutes: 60,
+      level: "advanced",
+      goal: "Expose liveness, readiness, and worker metrics that answer whether this instance can work right now, without turning a slow dependency into a restart loop.",
+      sections: [
+        {
+          h: "Three probes, three different questions",
+          p: [
+            "Liveness asks whether the process is wedged and should be restarted. Readiness asks whether it can accept work right now. Startup asks whether a slow boot has finished. Answering the wrong question with the wrong probe is how a database blip restarts an entire fleet.",
+            "A liveness probe that queries the database will fail during a dependency outage, the orchestrator will kill every replica, and the outage becomes total. Liveness should check the event loop and the supervisor. Readiness should check admission state, migrations, and queue health, because taking an instance out of rotation is reversible and cheap.",
+          ],
+          code: `use std::sync::atomic::{AtomicU8, Ordering};
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[repr(u8)]
+pub enum Phase {
+    Starting = 0,
+    Ready = 1,
+    Draining = 2,
+    Stopped = 3,
+}
+
+pub struct Health {
+    phase: AtomicU8,
+}
+
+impl Health {
+    pub fn new() -> Self {
+        Self { phase: AtomicU8::new(Phase::Starting as u8) }
+    }
+
+    pub fn set(&self, phase: Phase) {
+        self.phase.store(phase as u8, Ordering::SeqCst);
+    }
+
+    pub fn get(&self) -> Phase {
+        match self.phase.load(Ordering::SeqCst) {
+            1 => Phase::Ready,
+            2 => Phase::Draining,
+            3 => Phase::Stopped,
+            _ => Phase::Starting,
+        }
+    }
+}`,
+          tip: "Set the startup probe's failureThreshold from your slowest migration, not from a guess. It exists so liveness does not kill a process that is still booting.",
+        },
+        {
+          h: "Readiness is a state, not a query",
+          p: [
+            "The readiness handler should read a value, not perform IO. A handler that pings Postgres on every probe turns a probe into load and makes the probe fail for reasons the process cannot fix. Drive the state from the components that actually know: migrations finished, pool connected, listener bound, supervisor healthy.",
+            "During shutdown, readiness flips to false before the listener closes, so the load balancer stops sending traffic while in-flight work drains. Liveness stays true through the drain; a liveness failure during a normal shutdown causes a restart in the middle of it.",
+          ],
+          list: [
+            "starting: process alive, migrations running, not ready",
+            "ready: listener bound, pool warm, supervisor running",
+            "draining: readiness false, liveness true, work finishing",
+            "stopped: process exiting; liveness false only here",
+          ],
+          tip: "Return 503 from readiness with a short body naming the reason. `kubectl describe pod` shows the message, and it saves a log hunt.",
+        },
+        {
+          h: "Metrics that catch a silent stall",
+          p: [
+            "Four metric families cover most worker incidents: queue depth as a gauge, jobs started and finished by outcome as counters, job duration as a histogram, and time since the last successful job as a gauge. That last one catches the failure nothing else does: a process that is alive, connected, and doing nothing.",
+            "Cardinality is the constraint. Queue name and job class are bounded; job id and tenant id are not, and a label with a million values will take down the metrics backend before it tells you anything. Put unbounded identifiers in logs and traces, not in metric labels.",
+          ],
+          code: `use axum::extract::State;
+use axum::http::StatusCode;
+use axum::routing::get;
+use axum::Router;
+use metrics_exporter_prometheus::PrometheusHandle;
+use std::sync::Arc;
+
+pub fn router(health: Arc<Health>, prom: PrometheusHandle) -> Router {
+    Router::new()
+        // Liveness: no IO, no dependency checks.
+        .route("/healthz", get(|| async { StatusCode::OK }))
+        .route(
+            "/readyz",
+            get({
+                let health = health.clone();
+                move || async move {
+                    match health.get() {
+                        Phase::Ready => (StatusCode::OK, "ready"),
+                        Phase::Draining => (StatusCode::SERVICE_UNAVAILABLE, "draining"),
+                        _ => (StatusCode::SERVICE_UNAVAILABLE, "starting"),
+                    }
+                }
+            }),
+        )
+        .route(
+            "/metrics",
+            get(move || {
+                let body = prom.render();
+                async move { body }
+            }),
+        )
+}`,
+          tip: "A histogram of job duration answers questions a gauge cannot: p99, and how much of the tail is one pathological class of work.",
+        },
+        {
+          h: "Alert on symptoms, not on every counter",
+          p: [
+            "Alerts should correspond to user-visible pain: oldest job age above the SLO, restart rate above baseline, readiness flapping, or no successful job in the last ten minutes. Alerting on a single counter increment produces noise, and noise teaches people to ignore the pager.",
+            "Keep the healthy path quiet. A worker that logs every job at info level and exports forty metrics is expensive to run and hard to read during an incident. Log state transitions and failures, count everything else, and keep one dashboard that answers: is work flowing, and if not, where is it stuck.",
+          ],
+          tip: "For every alert, write the first diagnostic command in the runbook. If you cannot, the alert is not actionable yet.",
+        },
+      ],
+      exercise: {
+        prompt:
+          "Implement Health and probe: an atomic phase that starts in Starting, a setter, and a probe returning (StatusCode, reason) where only Ready is 200 and Draining reports its own reason.",
+        starter: `use axum::http::StatusCode;
+use std::sync::atomic::AtomicU8;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[repr(u8)]
+pub enum Phase {
+    Starting = 0,
+    Ready = 1,
+    Draining = 2,
+}
+
+pub struct Health {
+    phase: AtomicU8,
+}
+
+impl Health {
+    pub fn new() -> Self {
+        unimplemented!()
+    }
+    pub fn set(&self, _phase: Phase) {
+        unimplemented!()
+    }
+    pub fn get(&self) -> Phase {
+        unimplemented!()
+    }
+}
+
+pub fn probe(_phase: Phase) -> (StatusCode, &'static str) {
+    (StatusCode::OK, "ready")
+}`,
+        hint: "Mirror the repr(u8) discriminants in get(): match on the loaded u8 and map anything unknown to Starting. In probe, match Ready to 200 and everything else to 503 with a distinct reason.",
+        solution: `use axum::http::StatusCode;
+use std::sync::atomic::{AtomicU8, Ordering};
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[repr(u8)]
+pub enum Phase {
+    Starting = 0,
+    Ready = 1,
+    Draining = 2,
+}
+
+pub struct Health {
+    phase: AtomicU8,
+}
+
+impl Health {
+    pub fn new() -> Self {
+        Self { phase: AtomicU8::new(Phase::Starting as u8) }
+    }
+
+    pub fn set(&self, phase: Phase) {
+        self.phase.store(phase as u8, Ordering::SeqCst);
+    }
+
+    pub fn get(&self) -> Phase {
+        match self.phase.load(Ordering::SeqCst) {
+            1 => Phase::Ready,
+            2 => Phase::Draining,
+            _ => Phase::Starting,
+        }
+    }
+}
+
+pub fn probe(phase: Phase) -> (StatusCode, &'static str) {
+    match phase {
+        Phase::Ready => (StatusCode::OK, "ready"),
+        Phase::Draining => (StatusCode::SERVICE_UNAVAILABLE, "draining"),
+        Phase::Starting => (StatusCode::SERVICE_UNAVAILABLE, "starting"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_ready_is_a_200() {
+        assert_eq!(probe(Phase::Ready).0, StatusCode::OK);
+        assert_eq!(probe(Phase::Draining).0, StatusCode::SERVICE_UNAVAILABLE);
+        let health = Health::new();
+        assert_eq!(health.get(), Phase::Starting);
+        health.set(Phase::Ready);
+        assert_eq!(health.get(), Phase::Ready);
+    }
+}`,
+      },
+      production: [
+        "Liveness checks only the event loop and supervisor; no downstream dependency is in the path.",
+        "Readiness is driven by a state machine, flips false before the listener closes, and stays false while draining.",
+        "Queue depth, job outcomes, duration, and last-success age are exported with bounded labels.",
+        "Startup probe thresholds are derived from the slowest migration, not from a default.",
+        "Every alert has a runbook line naming the first diagnostic command.",
+      ],
+      crates: ["axum", "metrics", "metrics-exporter-prometheus", "tokio"],
+      github: [
+        { name: "metrics-rs/metrics - metrics facade and Prometheus exporter", url: "https://github.com/metrics-rs/metrics" },
+      ],
+      pitfall:
+        "A liveness probe whose handler queries the database: when the database slows, every replica fails liveness at once and the orchestrator restarts the whole fleet, turning a read slowdown into a total outage.",
+      questions: [
+        {
+          q: "Which check belongs in a liveness probe?",
+          options: [
+            "A query against the primary database",
+            "Whether the runtime's event loop and supervisor are making progress",
+            "Whether the queue depth is below the target",
+            "Whether the last job succeeded within the SLO",
+          ],
+          answer: 1,
+          explain: "Liveness restarts the process. It must not depend on something a restart cannot fix, or a dependency outage becomes a fleet-wide restart loop.",
+        },
+        {
+          q: "When should readiness return 503 during a deploy?",
+          options: [
+            "Only after the process exits",
+            "As soon as shutdown starts, before the listener closes, so traffic drains",
+            "After telemetry has been flushed",
+            "Never; readiness should stay 200 until the process is gone",
+          ],
+          answer: 1,
+          explain: "The load balancer needs a head start to stop routing before the listener closes. Readiness false plus liveness true is the drain state.",
+        },
+        {
+          q: "Which value is safe as a Prometheus label?",
+          options: [
+            "job_id",
+            "tenant_id",
+            "queue",
+            "attempt_uuid",
+          ],
+          answer: 2,
+          explain: "Queue names are a small bounded set. Per-job and per-tenant identifiers create a time series per value and will overload the metrics backend.",
+        },
+      ],
+      quickbytes: [
+        "Readiness reads a state; it never performs IO on the probe path.",
+        "Track time since last successful job: it catches the stall that CPU and memory miss.",
+        "Only bounded values become metric labels; identifiers stay in logs and traces.",
+      ],
+      resources: [
+        {
+          title: "Kubernetes: liveness, readiness, and startup probes",
+          url: "https://kubernetes.io/docs/concepts/workloads/pods/probes/",
+          kind: "docs",
+        },
+        {
+          title: "metrics-exporter-prometheus: scrape endpoint and render()",
+          url: "https://docs.rs/metrics-exporter-prometheus/latest/metrics_exporter_prometheus/",
+          kind: "docs",
+        },
+        {
+          title: "metrics crate: counters, gauges, histograms",
+          url: "https://docs.rs/metrics/latest/metrics/",
+          kind: "docs",
+        },
+        {
+          title: "CNCF: observability and SLO talks",
+          url: "https://www.youtube.com/@CNCF",
+          kind: "video",
+        },
+      ],
+    },
+    {
+      id: "p20",
+      title: "Cross-platform process handling",
+      minutes: 70,
+      level: "advanced",
+      goal: "Abstract over Unix process groups and Windows job objects with one supervision API, and know which guarantees you lose on Windows.",
+      sections: [
+        {
+          h: "The portable surface is smaller than it looks",
+          p: [
+            "std::process::Command, Child::kill, wait, and ExitStatus are portable. Process groups, signals, and the fork/exec split are not. On Unix, kill sends a signal the child can handle; on Windows, Child::kill calls TerminateProcess, which is SIGKILL with no chance to clean up.",
+            "Windows has no SIGTERM. Console applications receive CTRL_C_EVENT or CTRL_BREAK_EVENT, and GenerateConsoleCtrlEvent can only target a process group that shares a console. A service started by the Service Control Manager has no console at all, so graceful stop has to arrive over a channel you control.",
+          ],
+          code: `use std::process::ExitStatus;
+
+#[derive(Debug, PartialEq)]
+pub enum Ending {
+    Code(i32),
+    Signalled(i32),
+    Unknown,
+}
+
+pub fn classify(status: ExitStatus) -> Ending {
+    if let Some(code) = status.code() {
+        return Ending::Code(code);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        if let Some(sig) = status.signal() {
+            return Ending::Signalled(sig);
+        }
+    }
+    Ending::Unknown
+}`,
+          tip: "On Windows a terminated process still reports an exit code, so a TerminateProcess kill looks like a normal nonzero exit. Log the code and the wall time, or you will misclassify every forced stop.",
+        },
+        {
+          h: "One API: spawn a group, signal it, wait for it",
+          p: [
+            "The command-group crate wraps both models: on Unix it calls setpgid before exec, on Windows it creates a job object and assigns the child. group_spawn returns an AsyncGroupChild whose kill terminates the whole tree, which is the behaviour you actually want for a job runner.",
+            "Reach for it instead of hand-rolling cfg blocks at every spawn site. If you only need Unix, process_group(0) and killpg are fewer dependencies; the moment Windows is in scope, the job-object plumbing is not something to reimplement. The crate is two traits and one wrapper type, and the alternative is unsafe FFI plus a cfg block on every single spawn call in your codebase.",
+          ],
+          code: `use command_group::AsyncCommandGroup;
+use std::process::Stdio;
+use tokio::process::Command;
+
+pub async fn spawn_grouped(
+    program: &str,
+    args: &[&str],
+) -> std::io::Result<command_group::AsyncGroupChild> {
+    let mut cmd = Command::new(program);
+    cmd.args(args)
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .kill_on_drop(true);
+
+    // Unix: new process group. Windows: a job object for the tree.
+    cmd.group_spawn()
+}
+
+pub async fn stop(mut child: command_group::AsyncGroupChild) -> std::io::Result<()> {
+    // Kills the group on Unix and the job on Windows, then reaps.
+    child.kill().await?;
+    let _status = child.wait().await?;
+    Ok(())
+}`,
+          tip: "Closing a job handle with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE is the Windows equivalent of a process-group kill on parent death. Without it, a crashed supervisor leaves its grandchildren running.",
+        },
+        {
+          h: "Graceful stop without signals",
+          p: [
+            "If the platform cannot deliver SIGTERM, do not fake it. Give the child a stop channel: a named pipe, a small local HTTP endpoint, a control socket, or a file it watches. The supervisor writes a stop request with a deadline, waits for the child to exit, and only then terminates the tree.",
+            "tokio::signal::ctrl_c works on both platforms for interactive use, which is enough for development. Production Windows services need the Service Control Manager, which delivers its own stop event through the service API rather than a POSIX signal, and that requires a service wrapper crate rather than hand-written FFI.",
+          ],
+          list: [
+            "Unix: SIGTERM, wait, then killpg with SIGKILL after a grace window",
+            "Windows console: CTRL_BREAK_EVENT to the child's process group",
+            "Windows service: SCM stop event, delivered through a service wrapper",
+            "Any platform: a control socket plus a deadline, when signals are unreliable",
+          ],
+          tip: "A control socket is also the most testable shutdown path: an integration test connects, sends stop, and asserts the deadline behaviour without sending signals to the test harness.",
+        },
+        {
+          h: "CI has to run both",
+          p: [
+            "Cross-platform code that is never compiled on Windows rots quietly. Gate platform modules with cfg and run the test suite on both targets; at minimum, compile-check the Windows path with cargo check --target x86_64-pc-windows-msvc so cfg-gated code cannot drift. The check costs one CI job and catches the entire class of bugs where a cfg branch has not compiled since it was written.",
+            "Small differences cause real bugs: .exe suffixes, backslash paths, CRLF in captured output, and shell built-ins that do not exist in cmd.exe. None of them is hard to handle, and all of them are invisible until the first Windows run. Pass argv directly instead of going through a shell, normalise line endings before parsing child output, and resolve the program name with its extension before spawning.",
+          ],
+          tip: "Never build a command with cmd /C and an interpolated argument. Windows quoting rules differ from POSIX, and the resulting command injection is just as real.",
+        },
+      ],
+      exercise: {
+        prompt:
+          "Implement classify, which maps an ExitStatus to Code, Signalled, or Unknown across platforms, and stop, which kills a grouped child and reaps it. Add a test that classifies a normal exit and, on Unix, a SIGKILLed child.",
+        starter: `use std::process::ExitStatus;
+
+#[derive(Debug, PartialEq)]
+pub enum Ending {
+    Code(i32),
+    Signalled(i32),
+    Unknown,
+}
+
+pub fn classify(_status: ExitStatus) -> Ending {
+    Ending::Unknown
+}`,
+        hint: "status.code() returns Some on normal exits and None when the child died from a signal. Use std::os::unix::process::ExitStatusExt::signal behind cfg(unix). For the test, spawn sh -c 'kill -9 $$'.",
+        solution: `use std::process::ExitStatus;
+
+#[derive(Debug, PartialEq)]
+pub enum Ending {
+    Code(i32),
+    Signalled(i32),
+    Unknown,
+}
+
+pub fn classify(status: ExitStatus) -> Ending {
+    if let Some(code) = status.code() {
+        return Ending::Code(code);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        if let Some(sig) = status.signal() {
+            return Ending::Signalled(sig);
+        }
+    }
+    Ending::Unknown
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn run(script: &str) -> ExitStatus {
+        std::process::Command::new("sh")
+            .arg("-c")
+            .arg(script)
+            .status()
+            .expect("spawn sh")
+    }
+
+    #[test]
+    fn classifies_a_normal_exit() {
+        assert_eq!(classify(run("exit 3")), Ending::Code(3));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn classifies_a_signalled_child() {
+        assert_eq!(classify(run("kill -9 $$")), Ending::Signalled(9));
+    }
+}`,
+      },
+      production: [
+        "Every child is spawned into a group or job object, so kill reaches the whole tree on both platforms.",
+        "Shutdown has a platform-appropriate path: SIGTERM on Unix, a control event or socket on Windows.",
+        "A Windows job object uses KILL_ON_JOB_CLOSE, so a supervisor crash cannot orphan grandchildren.",
+        "CI compiles and tests both targets, with cfg-gated tests for the platform-specific paths.",
+        "No child command is built by interpolating arguments into a shell on either platform.",
+      ],
+      crates: ["command-group", "tokio", "win32job", "nix"],
+      github: [
+        { name: "watchexec/command-group - process groups and job objects", url: "https://github.com/watchexec/command-group" },
+        { name: "ohadravid/win32job-rs - safe Windows job objects", url: "https://github.com/ohadravid/win32job-rs" },
+      ],
+      pitfall:
+        "Treating Child::kill as a graceful stop on Windows: TerminateProcess gives the child no chance to flush, so every deploy loses buffered work, and the exit code makes it look like a normal failure.",
+      questions: [
+        {
+          q: "What does tokio::process::Child::kill do on Windows?",
+          options: [
+            "Sends SIGTERM, which the child can handle",
+            "Calls TerminateProcess, which the child cannot intercept or clean up after",
+            "Sends CTRL_C_EVENT to the child's console group",
+            "Closes the job object handle",
+          ],
+          answer: 1,
+          explain: "There is no SIGTERM on Windows. kill is immediate termination, so graceful shutdown needs a control channel or a console control event.",
+        },
+        {
+          q: "Why spawn a child into its own process group on Unix?",
+          options: [
+            "To give it a higher scheduling priority",
+            "So a kill can reach grandchildren that the direct child spawned",
+            "To isolate its environment variables",
+            "Because tokio requires it for async wait",
+          ],
+          answer: 1,
+          explain: "Signals go to one process unless you signal a group. Wrapper scripts and build tools spawn grandchildren, which survive a direct kill and keep ports and files locked.",
+        },
+        {
+          q: "A supervisor crashes on Windows but its children keep running. What was missing?",
+          options: [
+            "A SIGTERM handler",
+            "JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE on the job object",
+            "A higher process priority",
+            "The CREATE_NEW_CONSOLE flag",
+          ],
+          answer: 1,
+          explain: "The job object owns the tree only while its handle is open. With the kill-on-close limit, closing the last handle on supervisor death terminates the whole job.",
+        },
+      ],
+      quickbytes: [
+        "Use a group or job object per child; a bare kill only reaches the direct process.",
+        "On Windows, plan shutdown as a message, not as a signal.",
+        "Compile-check the cfg(windows) path in CI, or it will not build when you need it.",
+      ],
+      resources: [
+        {
+          title: "command-group: process groups on Unix, job objects on Windows",
+          url: "https://docs.rs/command-group/latest/command_group/",
+          kind: "docs",
+        },
+        {
+          title: "win32job: job object limits, including kill-on-close",
+          url: "https://docs.rs/win32job/latest/win32job/",
+          kind: "docs",
+        },
+        {
+          title: "signal(7): Unix signal semantics and defaults",
+          url: "https://man7.org/linux/man-pages/man7/signal.7.html",
+          kind: "docs",
+        },
+        {
+          title: "command-group repository: cross-platform implementation",
+          url: "https://github.com/watchexec/command-group",
+          kind: "repo",
+        },
+      ],
+    },
   ],
 };

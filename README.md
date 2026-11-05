@@ -1,7 +1,7 @@
 # Rust Academy — a DeepSeek Harness plugin
 
-An industry-grade Rust curriculum in the left sidebar of DeepSeek Harness. 30 tracks,
-538 focused chapters, from `fn main` to production distributed systems — with
+An industry-grade Rust curriculum in the left sidebar of DeepSeek Harness. 32 tracks,
+640 focused chapters, from `fn main` to production distributed systems — with
 exercises, quizzes, quickbytes, production checklists, reference architectures and
 verified links to docs, GitHub repos, papers and conference talks.
 
@@ -11,7 +11,7 @@ verified links to docs, GitHub repos, papers and conference talks.
 
 ## What you get
 
-- **30 tracks / 538 chapters.** Each chapter targets one narrow concept and is
+- **32 tracks / 640 chapters.** Each chapter targets one narrow concept and is
   ordered from fundamentals to production depth.
 - **Hands-on by default.** Every chapter has a goal, focused explanations, real code,
   an exercise with a hint and a worked solution, and a "check yourself" quiz.
@@ -61,6 +61,8 @@ verified links to docs, GitHub repos, papers and conference talks.
 | 28 | Concurrency patterns | 20 | Actors, CSP, structured concurrency, atomics, lock-free, testing |
 | 29 | API design | 20 | REST/RPC/GraphQL, versioning, pagination, errors, SDKs, DX |
 | 30 | Debugging & troubleshooting | 20 | Reproducers, bisection, traces, core dumps, deadlocks, postmortems |
+| 31 | Operating systems | 20 | Processes, scheduling, virtual memory, syscalls, filesystems, containers |
+| 32 | Compilers & language internals | 20 | Lexing, parsing, type checking, IR, rustc internals, codegen |
 
 ## How it is wired
 

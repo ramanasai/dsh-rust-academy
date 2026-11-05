@@ -1,6 +1,6 @@
 {
   "name": "@local/rust-academy",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "private": true,
   "description": "Industry-grade Rust curriculum in the Harness sidebar: six tracks from language fundamentals to web services, data, microservices, process handling, and production platform work.",
   "license": "MIT",
