@@ -106,9 +106,18 @@ the UI template; `build.mjs` injects the data and writes `client.js`.
 
 ```bash
 node scripts/validate-data.mjs src/data/web.mjs   # validate one track
-node build.mjs                                    # regenerate client.js
+node build.mjs                                    # regenerate client.js + compiler gate
+node build.mjs --no-snippets                      # skip the gate for a fast local build
 node --check client.js                            # syntax check the artifact
 ```
+
+`build.mjs` also runs a **compiler gate** over every Rust snippet in the
+curriculum: rustfmt (the rustc parser) must accept it, and self-contained
+exercise solutions are compiled with rustc. Context-dependent snippets that
+legitimately need definitions from earlier sections are recorded in
+`.snippet-baseline.json`; the build fails only on new failures. Refresh the
+baseline with `node scripts/compiler-gate.mjs --update-baseline`, or run
+`node scripts/compiler-gate.mjs --strict` to fail on any failure.
 
 Each chapter supports: `id`, `title`, `minutes`, `level`, `goal`, `sections[]`
 (`h`/`p`/`list`/`code`/`tip`), `exercise` (`prompt`/`starter`/`hint`/`solution`),
@@ -128,6 +137,8 @@ Each chapter supports: `id`, `title`, `minutes`, `level`, `goal`, `sections[]`
 | `src/app.js` | UI template (React without JSX) |
 | `src/data/` | Curriculum modules and track index |
 | `scripts/validate-data.mjs` | Data-module validator |
+| `scripts/compiler-gate.mjs` | Compiler gate: rustfmt parse + rustc compile of snippets |
+| `.snippet-baseline.json` | Known context-dependent snippets accepted by the gate |
 | `locale/en.json` | Plugin Manager title and description |
 | `icon.svg` | Original crab artwork |
 

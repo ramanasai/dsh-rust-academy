@@ -120,3 +120,16 @@ console.log('build: ' + tracks.length + ' tracks, ' + lessons.length + ' lessons
 for (const track of trackMeta) {
   console.log('  - ' + track.key.padEnd(16) + String(track.lessonCount).padStart(3) + ' lessons  ' + track.title);
 }
+
+// Compiler gate: every Rust snippet must parse with rustfmt, and self-contained
+// exercise solutions must compile with rustc. Known context-dependent snippets
+// are baselined in .snippet-baseline.json; the build fails on new failures.
+if (!process.argv.includes('--no-snippets')) {
+  const gate = await import(pathToFileURL(path.join(here, 'scripts', 'compiler-gate.mjs')).href + '?v=' + stamp);
+  const result = await gate.checkSnippets({ baseline: !process.argv.includes('--snippets-warn') });
+  if (result.exitCode !== 0) {
+    console.error('\nbuild: compiler gate failed — fix the snippets above, or run');
+    console.error('       node scripts/compiler-gate.mjs --update-baseline to accept them.');
+    process.exit(1);
+  }
+}
