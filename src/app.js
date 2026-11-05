@@ -102,6 +102,10 @@ window.__ModuleLoader__.load({
       'exercise.starter': 'Starter',
       'exercise.solution': 'Solution',
       'cheatsheet.subtitle': 'Copy-ready syntax and configuration for production Rust services.',
+      'cheatsheet.search': 'Search snippets…',
+      'cheatsheet.count': '{groups} groups · {items} snippets',
+      'cheatsheet.empty': 'No snippets match that search.',
+      'action.try': 'Try in Playground',
       'blueprints.subtitle': 'Reference architectures: how the pieces fit together, and what to verify before shipping.',
       'blueprints.title': 'Blueprints',
       'bp.of': 'Blueprint {n} of {total}',
@@ -731,29 +735,56 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function CheatItem({ item, onCopy }) {
+    function CheatItem({ item, onCopy, onTry }) {
       return h('div', { className: 'ra-cheat-item' },
         h('div', { className: 'ra-cheat-name-row' },
           h('span', { className: 'ra-cheat-name' }, item.name),
-          h('button', { type: 'button', className: 'ra-ghost ra-cheat-copy', onClick: () => onCopy(item.code) }, t('action.copy'))
+          h('span', { className: 'ra-cheat-actions' },
+            h('button', { type: 'button', className: 'ra-ghost ra-cheat-copy', onClick: () => onTry(item.code) }, t('action.try')),
+            h('button', { type: 'button', className: 'ra-ghost ra-cheat-copy', onClick: () => onCopy(item.code) }, t('action.copy'))
+          )
         ),
         h('pre', { className: 'ra-cheat-code' }, highlightRust(item.code))
       );
     }
 
-    function Cheatsheet({ onCopy }) {
+    function Cheatsheet({ onCopy, onTry }) {
+      const [query, setQuery] = useState('');
+      const terms = String(query || '').toLowerCase().split(/\s+/).filter(Boolean);
+      const totalItems = CHEATSHEET.reduce((total, group) => total + group.items.length, 0);
+      const groups = CHEATSHEET.map((group) => {
+        const titleMatches = terms.length > 0 && terms.every((term) => group.title.toLowerCase().includes(term));
+        const items = terms.length === 0 || titleMatches
+          ? group.items
+          : group.items.filter((item) => {
+              const haystack = (item.name + ' ' + item.code).toLowerCase();
+              return terms.every((term) => haystack.includes(term));
+            });
+        return { title: group.title, items };
+      }).filter((group) => group.items.length > 0);
+
       return h('div', { className: 'ra-page' },
         h('div', { className: 'ra-page-inner' },
           h('div', { className: 'ra-page-head' },
             h('h1', null, t('tab.cheatsheet')),
             h('p', null, t('cheatsheet.subtitle'))
           ),
-          h('div', { className: 'ra-cheat-grid' },
-            CHEATSHEET.map((group) => h('section', { className: 'ra-cheat-group', key: group.title },
-              h('h2', null, group.title),
-              group.items.map((item) => h(CheatItem, { key: item.name, item, onCopy }))
-            ))
-          )
+          h('div', { className: 'ra-cheat-toolbar' },
+            h('input', {
+              className: 'ra-search ra-cheat-search', type: 'search', value: query,
+              placeholder: t('cheatsheet.search'), 'aria-label': t('cheatsheet.search'),
+              onChange: (event) => setQuery(event.target.value),
+            }),
+            h('span', { className: 'ra-cheat-count' }, t('cheatsheet.count', { groups: CHEATSHEET.length, items: totalItems }))
+          ),
+          groups.length === 0
+            ? h('div', { className: 'ra-empty' }, t('cheatsheet.empty'))
+            : h('div', { className: 'ra-cheat-grid' },
+                groups.map((group) => h('section', { className: 'ra-cheat-group', key: group.title },
+                  h('h2', null, group.title, h('span', { className: 'ra-cheat-badge' }, String(group.items.length))),
+                  group.items.map((item) => h(CheatItem, { key: item.name, item, onCopy, onTry }))
+                ))
+              )
         )
       );
     }
@@ -793,9 +824,10 @@ window.__ModuleLoader__.load({
       '.unwrap_or()', '?', 'async fn ', '.await', 'assert_eq!()',
     ];
 
-    function Playground({ lesson }) {
+    function Playground({ lesson, seedCode }) {
       const saved = readJson(PLAYGROUND_KEY, {});
-      const [code, setCode] = useState(() => typeof saved.code === 'string' ? saved.code : PLAYGROUND_DEFAULT);
+      const [code, setCode] = useState(() => (typeof seedCode === 'string' && seedCode)
+        || (typeof saved.code === 'string' ? saved.code : PLAYGROUND_DEFAULT));
       const [edition, setEdition] = useState(typeof saved.edition === 'string' ? saved.edition : '2021');
       const [tests, setTests] = useState(!!saved.tests);
       const [running, setRunning] = useState(false);
@@ -1046,6 +1078,8 @@ window.__ModuleLoader__.load({
       const [focus, setFocus] = useState(false);
       const [trackFilter, setTrackFilter] = useState('all');
       const [openTracks, setOpenTracks] = useState(() => readJson(NAV_KEY, {}));
+      const [playgroundCode, setPlaygroundCode] = useState(null);
+      const [playgroundSeed, setPlaygroundSeed] = useState(0);
 
       useEffect(() => {
         if (!toast) return undefined;
@@ -1098,6 +1132,12 @@ window.__ModuleLoader__.load({
       function selectLesson(id) {
         setSelectedId(id);
         writeJson(LAST_KEY, { id });
+      }
+
+      function tryInPlayground(code) {
+        setPlaygroundCode(code);
+        setPlaygroundSeed((value) => value + 1);
+        setTab('playground');
       }
 
       function toggleTrack(key) {
@@ -1228,8 +1268,8 @@ window.__ModuleLoader__.load({
           : tab === 'blueprints'
             ? h(Blueprints, { onOpenLesson: openLesson })
             : tab === 'cheatsheet'
-              ? h(Cheatsheet, { onCopy: copy })
-              : h(Playground, { lesson }),
+              ? h(Cheatsheet, { onCopy: copy, onTry: tryInPlayground })
+              : h(Playground, { key: 'pg-' + playgroundSeed, lesson, seedCode: playgroundCode }),
         toast ? h('div', { className: 'ra-toast', role: 'status' }, toast) : null
       );
     }
@@ -1408,12 +1448,17 @@ window.__ModuleLoader__.load({
 .ra-bp-link:hover{background:var(--dsw-alias-bg-layer-2);}
 .ra-bp-link-num{flex:0 0 auto;font:10.5px/1 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;}
 .ra-bp-link-track{margin-left:auto;font-size:10px;color:var(--dsw-alias-label-secondary);white-space:nowrap;}
-.ra-cheat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px;align-items:start;}
+.ra-cheat-toolbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 18px;}
+.ra-cheat-search{min-width:260px;}
+.ra-cheat-count{font-size:11.5px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;}
+.ra-cheat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px;align-items:start;}
 .ra-cheat-group{border:1px solid var(--dsw-alias-border-l1);border-radius:11px;background:var(--dsw-alias-bg-layer-1);overflow:hidden;}
-.ra-cheat-group h2{margin:0;padding:9px 13px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--dsw-alias-label-secondary);border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);}
+.ra-cheat-group h2{display:flex;align-items:center;gap:8px;margin:0;padding:9px 13px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--dsw-alias-label-secondary);border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);}
+.ra-cheat-badge{margin-left:auto;font-size:10px;font-weight:500;letter-spacing:0;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l1);border-radius:999px;padding:0 6px;line-height:1.6;}
 .ra-cheat-item{padding:9px 13px;border-bottom:1px solid var(--dsw-alias-border-l1);}
 .ra-cheat-item:last-child{border-bottom:0;}
 .ra-cheat-name-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px;}
+.ra-cheat-actions{display:flex;align-items:center;gap:5px;flex:0 0 auto;}
 .ra-cheat-name{font-size:11px;color:var(--dsw-alias-label-secondary);}
 .ra-cheat-copy{padding:1px 7px;font-size:10px;}
 .ra-cheat-code{margin:0;overflow-x:auto;font:11.5px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--dsw-alias-label-primary);white-space:pre;}
