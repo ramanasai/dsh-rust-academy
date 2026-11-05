@@ -1,13 +1,8 @@
 /**
  * WASM & frontend track.
  *
- * API versions used across the lessons, checked against docs.rs on 2026-11-04:
- * wasm-bindgen 0.2.130 (web-sys 0.3.107, js-sys 0.3.107, wasm-bindgen-futures
- * 0.4.80, wasm-bindgen-test 0.3.80), leptos 0.8.23, leptos_axum 0.8.10,
- * yew 0.23.0, dioxus 0.7.10, wasmtime 50.0.1 with wasmtime-wasi p2, and the
- * workers-rs `worker` crate.
- *
- * Data is JSON-compatible and consumed by the plugin build.
+ * Authored for the Rust Academy plugin. Every lesson is plain JSON-compatible
+ * data consumed by src/app.js through build.mjs.
  */
 export default {
   "key": "frontend-wasm",
@@ -63,31 +58,7 @@ export default {
           "p": [
             "Every instruction consumes and produces typed values on an implicit stack: i32.mul pops two i32 and pushes one. block and loop give branch targets, and br_if pops a condition before branching. Once this is legible, generated Rust stops being opaque: locals become stack slots, struct fields become offsets from a base pointer, and a slice index becomes a compare plus a trap."
           ],
-          "code": `(module
-  (memory (export "memory") 1)            ;; one 64 KiB page
-  (global $next (mut i32) (i32.const 0))
-
-  (func $alloc (param $len i32) (result i32)
-    (local $ptr i32)
-    (global.get $next)
-    (local.tee $ptr)
-    (local.get $len)
-    (i32.add)
-    (global.set $next)
-    (local.get $ptr))
-
-  (func (export "sum_squares") (param $n i32) (result i32)
-    (local $i i32)
-    (local $acc i32)
-    (block $done
-      (loop $next
-        (br_if $done (i32.ge_s (local.get $i) (local.get $n)))
-        (local.set $acc
-          (i32.add (local.get $acc)
-                   (i32.mul (local.get $i) (local.get $i))))
-        (local.set $i (i32.add (local.get $i) (i32.const 1)))
-        (br $next)))
-    (local.get $acc)))`,
+          "code": "(module\n  (memory (export \"memory\") 1)            ;; one 64 KiB page\n  (global $next (mut i32) (i32.const 0))\n\n  (func $alloc (param $len i32) (result i32)\n    (local $ptr i32)\n    (global.get $next)\n    (local.tee $ptr)\n    (local.get $len)\n    (i32.add)\n    (global.set $next)\n    (local.get $ptr))\n\n  (func (export \"sum_squares\") (param $n i32) (result i32)\n    (local $i i32)\n    (local $acc i32)\n    (block $done\n      (loop $next\n        (br_if $done (i32.ge_s (local.get $i) (local.get $n)))\n        (local.set $acc\n          (i32.add (local.get $acc)\n                   (i32.mul (local.get $i) (local.get $i))))\n        (local.set $i (i32.add (local.get $i) (i32.const 1)))\n        (br $next)))\n    (local.get $acc)))",
           "tip": "wasm-tools print (or wasm2wat) shows exactly what you shipped; run it on a release build, where inlining has already happened."
         },
         {
@@ -96,56 +67,15 @@ export default {
             "The security model is why wasm runs on servers and at the edge. Guest code cannot name a host address; it can only touch its own memory and call imported functions the embedder chose to provide. A bug in the guest produces a trap, not a shell: out-of-bounds access is checked, the guest stack is separate, and the host decides how much CPU and memory an instance may consume.",
             "That is also the honest limitation. The sandbox protects the host from the guest, not the guest from itself, and it is not free: bounds checks and register pressure cost real cycles. The systematic USENIX ATC 2019 study measured WebAssembly running roughly 1.5x slower than native on average, with bounds checking as a leading cause."
           ],
-          "code": `// index.js — the host half of the contract
-const response = await fetch("/pkg/dashboard_bg.wasm");
-const { instance } = await WebAssembly.instantiateStreaming(response, {});
-
-// Exports are plain JS functions; arguments widen to JS numbers.
-console.log(instance.exports.sum_squares(10)); // 285
-
-// Imports are where the host hands over authority, one function at a time.
-const { instance: clocked } = await WebAssembly.instantiateStreaming(
-  fetch("/pkg/clocked_bg.wasm"),
-  { env: { now: () => performance.now() } },
-);
-
-// Memory is an ArrayBuffer that can detach when it grows — re-read it.
-const bytes = new Uint8Array(clocked.exports.memory.buffer, 0, 16);`,
+          "code": "// index.js — the host half of the contract\nconst response = await fetch(\"/pkg/dashboard_bg.wasm\");\nconst { instance } = await WebAssembly.instantiateStreaming(response, {});\n\n// Exports are plain JS functions; arguments widen to JS numbers.\nconsole.log(instance.exports.sum_squares(10)); // 285\n\n// Imports are where the host hands over authority, one function at a time.\nconst { instance: clocked } = await WebAssembly.instantiateStreaming(\n  fetch(\"/pkg/clocked_bg.wasm\"),\n  { env: { now: () => performance.now() } },\n);\n\n// Memory is an ArrayBuffer that can detach when it grows — re-read it.\nconst bytes = new Uint8Array(clocked.exports.memory.buffer, 0, 16);",
           "tip": "instantiateStreaming requires Content-Type: application/wasm; a server that guesses application/octet-stream silently falls back to a slower path or rejects."
         }
       ],
       "exercise": {
         "prompt": "Write a WAT module that exports a memory and an iterative fib(n: i32) -> i32, then instantiate it from JavaScript and print fib(30). Keep every loop branch explicit so the control flow is visible.",
-        "starter": `(module
-  ;; 1. export a memory
-  ;; 2. fib with locals a, b, i — no recursion
-)
-
-// index.js
-// 3. instantiate and call fib(30)`,
+        "starter": "(module\n  ;; 1. export a memory\n  ;; 2. fib with locals a, b, i — no recursion\n)\n\n// index.js\n// 3. instantiate and call fib(30)",
         "hint": "Keep a = 0, b = 1 and loop n times: t = a; a = b; b = t + b. Export the function with (export \"fib\") and branch back to the loop label.",
-        "solution": `(module
-  (memory (export "memory") 1)
-
-  (func (export "fib") (param $n i32) (result i32)
-    (local $a i32) (local $b i32) (local $t i32) (local $i i32)
-    (local.set $b (i32.const 1))
-    (block $done
-      (loop $loop
-        (br_if $done (i32.ge_s (local.get $i) (local.get $n)))
-        (local.set $t (local.get $a))
-        (local.set $a (local.get $b))
-        (local.set $b (i32.add (local.get $t) (local.get $b)))
-        (local.set $i (i32.add (local.get $i) (i32.const 1)))
-        (br $loop)))
-    (local.get $a)))
-
-// index.js
-const { instance } = await WebAssembly.instantiateStreaming(
-  fetch("/fib.wasm"),
-  {},
-);
-console.log(instance.exports.fib(30)); // 832040`
+        "solution": "(module\n  (memory (export \"memory\") 1)\n\n  (func (export \"fib\") (param $n i32) (result i32)\n    (local $a i32) (local $b i32) (local $t i32) (local $i i32)\n    (local.set $b (i32.const 1))\n    (block $done\n      (loop $loop\n        (br_if $done (i32.ge_s (local.get $i) (local.get $n)))\n        (local.set $t (local.get $a))\n        (local.set $a (local.get $b))\n        (local.set $b (i32.add (local.get $t) (local.get $b)))\n        (local.set $i (i32.add (local.get $i) (i32.const 1)))\n        (br $loop)))\n    (local.get $a)))\n\n// index.js\nconst { instance } = await WebAssembly.instantiateStreaming(\n  fetch(\"/fib.wasm\"),\n  {},\n);\nconsole.log(instance.exports.fib(30)); // 832040"
       },
       "production": [
         "Serve .wasm as application/wasm and cache it immutably with a content hash in the filename.",
@@ -200,8 +130,14 @@ console.log(instance.exports.fib(30)); // 832040`
         "Treat the .wasm URL as an API: content type, cache headers and filename hash are part of the contract."
       ],
       "github": [
-        { "name": "wasm-bindgen — Rust/JS glue for WebAssembly", "url": "https://github.com/wasm-bindgen/wasm-bindgen" },
-        { "name": "WebAssembly/spec — reference interpreter and test suite", "url": "https://github.com/WebAssembly/spec" }
+        {
+          "name": "wasm-bindgen — Rust/JS glue for WebAssembly",
+          "url": "https://github.com/wasm-bindgen/wasm-bindgen"
+        },
+        {
+          "name": "WebAssembly/spec — reference interpreter and test suite",
+          "url": "https://github.com/WebAssembly/spec"
+        }
       ],
       "resources": [
         {
@@ -211,7 +147,7 @@ console.log(instance.exports.fib(30)); // 832040`
         },
         {
           "title": "MDN: WebAssembly concepts",
-          "url": "https://developer.mozilla.org/en-US/docs/WebAssembly/Concepts",
+          "url": "https://developer.mozilla.org/en-US/docs/WebAssembly/Guides/Concepts",
           "kind": "docs"
         },
         {
@@ -259,49 +195,7 @@ console.log(instance.exports.fib(30)); // 832040`
             "Export few, coarse functions and owned data. Every call pays a JS-to-wasm transition, and every string pays a copy into linear memory; chatty APIs multiply both. When the shape is complex, serialize a DTO with serde-wasm-bindgen rather than exposing five getters that each cross the boundary.",
             "Keep lifetimes out of the API. JavaScript cannot borrow Rust data, so anything borrowed has to be copied; returning a reference is not a thing the boundary can express. Returning Result<T, JsError> is the exception that maps cleanly: it becomes a thrown JS Error on the other side."
           ],
-          "code": `use wasm_bindgen::prelude::*;
-use serde::Serialize;
-
-#[derive(Serialize)]
-struct Snapshot {
-    samples: usize,
-    p95_ms: f64,
-}
-
-#[wasm_bindgen]
-pub struct Dashboard {
-    samples: Vec<f64>,
-}
-
-#[wasm_bindgen]
-impl Dashboard {
-    #[wasm_bindgen(constructor)]
-    pub fn new() -> Dashboard {
-        Dashboard { samples: Vec::new() }
-    }
-
-    pub fn push(&mut self, value: f64) {
-        self.samples.push(value);
-    }
-
-    // Result<T, JsError> becomes a thrown JS Error.
-    pub fn snapshot(&self) -> Result<JsValue, JsError> {
-        let mut sorted = self.samples.clone();
-        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-        let idx = ((sorted.len().saturating_sub(1)) as f64 * 0.95).round() as usize;
-        let p95_ms = sorted.get(idx).copied().unwrap_or(0.0);
-        serde_wasm_bindgen::to_value(&Snapshot {
-            samples: self.samples.len(),
-            p95_ms,
-        })
-        .map_err(|e| JsError::new(&e.to_string()))
-    }
-}
-
-#[wasm_bindgen(start)]
-pub fn start() {
-    console_error_panic_hook::set_once();
-}`,
+          "code": "use wasm_bindgen::prelude::*;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct Snapshot {\n    samples: usize,\n    p95_ms: f64,\n}\n\n#[wasm_bindgen]\npub struct Dashboard {\n    samples: Vec<f64>,\n}\n\n#[wasm_bindgen]\nimpl Dashboard {\n    #[wasm_bindgen(constructor)]\n    pub fn new() -> Dashboard {\n        Dashboard { samples: Vec::new() }\n    }\n\n    pub fn push(&mut self, value: f64) {\n        self.samples.push(value);\n    }\n\n    // Result<T, JsError> becomes a thrown JS Error.\n    pub fn snapshot(&self) -> Result<JsValue, JsError> {\n        let mut sorted = self.samples.clone();\n        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));\n        let idx = ((sorted.len().saturating_sub(1)) as f64 * 0.95).round() as usize;\n        let p95_ms = sorted.get(idx).copied().unwrap_or(0.0);\n        serde_wasm_bindgen::to_value(&Snapshot {\n            samples: self.samples.len(),\n            p95_ms,\n        })\n        .map_err(|e| JsError::new(&e.to_string()))\n    }\n}\n\n#[wasm_bindgen(start)]\npub fn start() {\n    console_error_panic_hook::set_once();\n}",
           "tip": "#[wasm_bindgen(start)] runs at instantiation: the right place for the panic hook, the wrong place for work that needs a DOM node which may not exist yet."
         },
         {
@@ -309,19 +203,7 @@ pub fn start() {
           "p": [
             "An exported struct is a pointer into wasm memory that JavaScript holds as an opaque object. JavaScript has no destructor, so the Rust value lives until you call free() — or until a FinalizationRegistry gets around to it, which is not a schedule you can test against. In a framework you rarely construct these by hand; in a hand-written binding, every new Dashboard() is a leak until it is freed."
           ],
-          "code": `const dashboard = new Dashboard();
-dashboard.push(12.5);
-dashboard.push(31.0);
-
-console.log(dashboard.snapshot()); // { samples: 2, p95_ms: 31 }
-dashboard.free();                  // JS has no Drop; this is mandatory
-
-// If the handle must survive an async boundary, own it explicitly:
-class DashboardOwner {
-  #handle = new Dashboard();
-  get handle() { return this.#handle; }
-  dispose() { this.#handle.free(); }
-}`,
+          "code": "const dashboard = new Dashboard();\ndashboard.push(12.5);\ndashboard.push(31.0);\n\nconsole.log(dashboard.snapshot()); // { samples: 2, p95_ms: 31 }\ndashboard.free();                  // JS has no Drop; this is mandatory\n\n// If the handle must survive an async boundary, own it explicitly:\nclass DashboardOwner {\n  #handle = new Dashboard();\n  get handle() { return this.#handle; }\n  dispose() { this.#handle.free(); }\n}",
           "list": [
             "Prefer plain data across the boundary over long-lived handles",
             "Give every handle an owner with an explicit dispose()",
@@ -332,67 +214,9 @@ class DashboardOwner {
       ],
       "exercise": {
         "prompt": "Expose a Histogram to JavaScript with a constructor, record(&mut self, f64), a count getter, and to_json() -> Result<JsValue, JsError>. Then call it from JS, read the count, and free the handle.",
-        "starter": `use wasm_bindgen::prelude::*;
-
-#[wasm_bindgen]
-pub struct Histogram {
-    // 1. keep a Vec<f64>
-}
-
-#[wasm_bindgen]
-impl Histogram {
-    // 2. constructor
-    // 3. record(&mut self, value: f64)
-    // 4. #[wasm_bindgen(getter)] pub fn count(&self) -> usize
-    // 5. to_json -> Result<JsValue, JsError>
-}`,
+        "starter": "use wasm_bindgen::prelude::*;\n\n#[wasm_bindgen]\npub struct Histogram {\n    // 1. keep a Vec<f64>\n}\n\n#[wasm_bindgen]\nimpl Histogram {\n    // 2. constructor\n    // 3. record(&mut self, value: f64)\n    // 4. #[wasm_bindgen(getter)] pub fn count(&self) -> usize\n    // 5. to_json -> Result<JsValue, JsError>\n}",
         "hint": "Mark the constructor with #[wasm_bindgen(constructor)], mark count with #[wasm_bindgen(getter)] so JS reads it as a property, and use serde_wasm_bindgen::to_value with a #[derive(Serialize)] struct.",
-        "solution": `use wasm_bindgen::prelude::*;
-use serde::Serialize;
-
-#[derive(Serialize)]
-struct HistogramJson {
-    count: usize,
-    values: Vec<f64>,
-}
-
-#[wasm_bindgen]
-pub struct Histogram {
-    values: Vec<f64>,
-}
-
-#[wasm_bindgen]
-impl Histogram {
-    #[wasm_bindgen(constructor)]
-    pub fn new() -> Histogram {
-        Histogram { values: Vec::new() }
-    }
-
-    pub fn record(&mut self, value: f64) {
-        self.values.push(value);
-    }
-
-    #[wasm_bindgen(getter)]
-    pub fn count(&self) -> usize {
-        self.values.len()
-    }
-
-    pub fn to_json(&self) -> Result<JsValue, JsError> {
-        serde_wasm_bindgen::to_value(&HistogramJson {
-            count: self.values.len(),
-            values: self.values.clone(),
-        })
-        .map_err(|e| JsError::new(&e.to_string()))
-    }
-}
-
-// dashboard.js
-// const h = new Histogram();
-// h.record(12.5);
-// h.record(31.0);
-// console.log(h.count);       // 2
-// console.log(h.to_json());   // { count: 2, values: [...] }
-// h.free();`
+        "solution": "use wasm_bindgen::prelude::*;\nuse serde::Serialize;\n\n#[derive(Serialize)]\nstruct HistogramJson {\n    count: usize,\n    values: Vec<f64>,\n}\n\n#[wasm_bindgen]\npub struct Histogram {\n    values: Vec<f64>,\n}\n\n#[wasm_bindgen]\nimpl Histogram {\n    #[wasm_bindgen(constructor)]\n    pub fn new() -> Histogram {\n        Histogram { values: Vec::new() }\n    }\n\n    pub fn record(&mut self, value: f64) {\n        self.values.push(value);\n    }\n\n    #[wasm_bindgen(getter)]\n    pub fn count(&self) -> usize {\n        self.values.len()\n    }\n\n    pub fn to_json(&self) -> Result<JsValue, JsError> {\n        serde_wasm_bindgen::to_value(&HistogramJson {\n            count: self.values.len(),\n            values: self.values.clone(),\n        })\n        .map_err(|e| JsError::new(&e.to_string()))\n    }\n}\n\n// dashboard.js\n// const h = new Histogram();\n// h.record(12.5);\n// h.record(31.0);\n// console.log(h.count);       // 2\n// console.log(h.to_json());   // { count: 2, values: [...] }\n// h.free();"
       },
       "production": [
         "CI regenerates the binding from a clean Cargo.lock and fails if the committed pkg/ differs.",
@@ -450,8 +274,14 @@ impl Histogram {
         "Keep #[wasm_bindgen(start)] for setup only — it runs before your app has mounted anything."
       ],
       "github": [
-        { "name": "wasm-bindgen/wasm-bindgen", "url": "https://github.com/wasm-bindgen/wasm-bindgen" },
-        { "name": "wasm-bindgen/wasm-pack", "url": "https://github.com/wasm-bindgen/wasm-pack" }
+        {
+          "name": "wasm-bindgen/wasm-bindgen",
+          "url": "https://github.com/wasm-bindgen/wasm-bindgen"
+        },
+        {
+          "name": "wasm-bindgen/wasm-pack",
+          "url": "https://github.com/wasm-bindgen/wasm-pack"
+        }
       ],
       "resources": [
         {
@@ -490,35 +320,7 @@ impl Histogram {
             "An extern block declares what the host will provide, and wasm-bindgen turns each declaration into a real JavaScript call with canonical handling for strings. Namespace attributes let you bind console.log or performance.now directly, while js-sys provides typed wrappers for built-ins like Array, Promise, Uint8Array and Date.",
             "The escape hatch is JsValue: an opaque handle to any JS value. It is cheap to pass and expensive to inspect, because every get or set is a property access across the boundary. Use a typed js-sys wrapper wherever one exists and reserve JsValue for genuinely dynamic data such as structured-clone payloads."
           ],
-          "code": `use wasm_bindgen::prelude::*;
-use wasm_bindgen::JsCast;
-
-#[wasm_bindgen]
-extern "C" {
-    #[wasm_bindgen(js_namespace = console, js_name = log)]
-    fn console_log(s: &str);
-
-    #[wasm_bindgen(js_namespace = performance, js_name = now)]
-    fn performance_now() -> f64;
-
-    #[wasm_bindgen(js_name = structuredClone)]
-    fn structured_clone(value: &JsValue) -> JsValue;
-}
-
-pub fn element_by_id(id: &str) -> Option<web_sys::HtmlElement> {
-    web_sys::window()?
-        .document()?
-        .get_element_by_id(id)?
-        .dyn_into::<web_sys::HtmlElement>()
-        .ok()
-}
-
-pub fn timed<T>(label: &str, f: impl FnOnce() -> T) -> T {
-    let start = performance_now();
-    let out = f();
-    console_log(&format!("{label}: {:.2} ms", performance_now() - start));
-    out
-}`,
+          "code": "use wasm_bindgen::prelude::*;\nuse wasm_bindgen::JsCast;\n\n#[wasm_bindgen]\nextern \"C\" {\n    #[wasm_bindgen(js_namespace = console, js_name = log)]\n    fn console_log(s: &str);\n\n    #[wasm_bindgen(js_namespace = performance, js_name = now)]\n    fn performance_now() -> f64;\n\n    #[wasm_bindgen(js_name = structuredClone)]\n    fn structured_clone(value: &JsValue) -> JsValue;\n}\n\npub fn element_by_id(id: &str) -> Option<web_sys::HtmlElement> {\n    web_sys::window()?\n        .document()?\n        .get_element_by_id(id)?\n        .dyn_into::<web_sys::HtmlElement>()\n        .ok()\n}\n\npub fn timed<T>(label: &str, f: impl FnOnce() -> T) -> T {\n    let start = performance_now();\n    let out = f();\n    console_log(&format!(\"{label}: {:.2} ms\", performance_now() - start));\n    out\n}",
           "tip": "dyn_into returns Result and dyn_ref returns Option — use the latter when a null is a normal outcome, and handle it instead of unwrapping."
         },
         {
@@ -527,43 +329,7 @@ pub fn timed<T>(label: &str, f: impl FnOnce() -> T) -> T {
             "A Rust closure passed to JavaScript must outlive the call that registered it. Closure::new boxes the closure and keeps it alive; if the Closure value is dropped, the JS side still holds a callback pointer into freed memory, and the next event panics or throws. Store the closure in the struct that owns the listener, and drop both together.",
             "For a listener that only ever fires once, Closure::once_into_js hands ownership to JavaScript and needs no bookkeeping. Closure::forget() leaks by design: it is correct for a listener that must live as long as the page, and a bug everywhere else, because nothing can ever unregister it."
           ],
-          "code": `use wasm_bindgen::prelude::*;
-use wasm_bindgen::JsCast;
-use web_sys::EventTarget;
-
-pub struct VisibilityWatcher {
-    target: EventTarget,
-    // Keep the closure alive exactly as long as the listener is registered.
-    on_change: Closure<dyn FnMut(web_sys::Event)>,
-}
-
-impl VisibilityWatcher {
-    pub fn attach(target: &EventTarget) -> Result<Self, JsValue> {
-        let on_change = Closure::<dyn FnMut(web_sys::Event)>::new(move |_ev| {
-            let hidden = web_sys::window()
-                .and_then(|w| w.document())
-                .map(|d| d.hidden())
-                .unwrap_or(false);
-            if hidden {
-                // pause timers, flush buffers, stop polling
-            }
-        });
-        target.add_event_listener_with_callback(
-            "visibilitychange",
-            on_change.as_ref().unchecked_ref(),
-        )?;
-        Ok(Self { target: target.clone(), on_change })
-    }
-}
-
-impl Drop for VisibilityWatcher {
-    fn drop(&mut self) {
-        let _ = self.target.remove_event_listener_with_callback(
-            "visibilitychange",
-            self.on_change.as_ref().unchecked_ref(),
-        );
-    }
-}`,
+          "code": "use wasm_bindgen::prelude::*;\nuse wasm_bindgen::JsCast;\nuse web_sys::EventTarget;\n\npub struct VisibilityWatcher {\n    target: EventTarget,\n    // Keep the closure alive exactly as long as the listener is registered.\n    on_change: Closure<dyn FnMut(web_sys::Event)>,\n}\n\nimpl VisibilityWatcher {\n    pub fn attach(target: &EventTarget) -> Result<Self, JsValue> {\n        let on_change = Closure::<dyn FnMut(web_sys::Event)>::new(move |_ev| {\n            let hidden = web_sys::window()\n                .and_then(|w| w.document())\n                .map(|d| d.hidden())\n                .unwrap_or(false);\n            if hidden {\n                // pause timers, flush buffers, stop polling\n            }\n        });\n        target.add_event_listener_with_callback(\n            \"visibilitychange\",\n            on_change.as_ref().unchecked_ref(),\n        )?;\n        Ok(Self { target: target.clone(), on_change })\n    }\n}\n\nimpl Drop for VisibilityWatcher {\n    fn drop(&mut self) {\n        let _ = self.target.remove_event_listener_with_callback(\n            \"visibilitychange\",\n            self.on_change.as_ref().unchecked_ref(),\n        );\n    }\n}",
           "tip": "The error 'closure invoked after being dropped' is almost always a Closure that was not stored; it is not a wasm-bindgen bug."
         },
         {
@@ -572,34 +338,7 @@ impl Drop for VisibilityWatcher {
             "wasm-bindgen-futures bridges the two worlds. spawn_local drives a Rust future on the current thread, and JsFuture converts a JS Promise into something awaitable. In 0.4.80 the crate is a thin shim over js_sys::futures: js_sys::Promise implements IntoFuture directly, so a promise can simply be awaited.",
             "There is no thread to block in a browser. A synchronous wait deadlocks the event loop, and a busy loop starves rendering. spawn_local returns immediately, which is why the work must live inside the async block and why errors inside it have to be surfaced explicitly — nobody is awaiting the spawned future."
           ],
-          "code": `use wasm_bindgen::JsCast;
-use wasm_bindgen_futures::spawn_local;
-
-pub fn load_json(url: &'static str) {
-    spawn_local(async move {
-        let window = web_sys::window().expect("browser");
-        let resp: web_sys::Response = wasm_bindgen_futures::JsFuture::from(
-            window.fetch_with_str(url),
-        )
-        .await
-        .expect("network")
-        .dyn_into()
-        .expect("Response");
-
-        if !resp.ok() {
-            web_sys::console::error_1(&format!("HTTP {}", resp.status()).into());
-            return;
-        }
-
-        let text = wasm_bindgen_futures::JsFuture::from(resp.text().unwrap())
-            .await
-            .expect("body")
-            .as_string()
-            .unwrap_or_default();
-
-        let _rows: Vec<Metric> = serde_json::from_str(&text).unwrap_or_default();
-    });
-}`,
+          "code": "use wasm_bindgen::JsCast;\nuse wasm_bindgen_futures::spawn_local;\n\npub fn load_json(url: &'static str) {\n    spawn_local(async move {\n        let window = web_sys::window().expect(\"browser\");\n        let resp: web_sys::Response = wasm_bindgen_futures::JsFuture::from(\n            window.fetch_with_str(url),\n        )\n        .await\n        .expect(\"network\")\n        .dyn_into()\n        .expect(\"Response\");\n\n        if !resp.ok() {\n            web_sys::console::error_1(&format!(\"HTTP {}\", resp.status()).into());\n            return;\n        }\n\n        let text = wasm_bindgen_futures::JsFuture::from(resp.text().unwrap())\n            .await\n            .expect(\"body\")\n            .as_string()\n            .unwrap_or_default();\n\n        let _rows: Vec<Metric> = serde_json::from_str(&text).unwrap_or_default();\n    });\n}",
           "list": [
             "spawn_local drives the future on the microtask queue, not a thread",
             "A panic inside a spawned future is not propagated to the caller",
@@ -610,68 +349,9 @@ pub fn load_json(url: &'static str) {
       ],
       "exercise": {
         "prompt": "Attach a click listener to a button that increments a shared counter, keep the closure alive in a struct, and remove the listener in Drop so a test can assert the callback stops firing.",
-        "starter": `use std::cell::Cell;
-use std::rc::Rc;
-use wasm_bindgen::prelude::*;
-use web_sys::HtmlElement;
-
-pub struct ClickCounter {
-    // hold the element, the closure and the shared count
-}
-
-impl ClickCounter {
-    pub fn attach(button: &HtmlElement) -> Result<Self, JsValue> {
-        // 1. Rc<Cell<u32>>
-        // 2. Closure::new(move |_| ...)
-        // 3. add_event_listener_with_callback("click", ...)
-        todo!()
-    }
-}`,
+        "starter": "use std::cell::Cell;\nuse std::rc::Rc;\nuse wasm_bindgen::prelude::*;\nuse web_sys::HtmlElement;\n\npub struct ClickCounter {\n    // hold the element, the closure and the shared count\n}\n\nimpl ClickCounter {\n    pub fn attach(button: &HtmlElement) -> Result<Self, JsValue> {\n        // 1. Rc<Cell<u32>>\n        // 2. Closure::new(move |_| ...)\n        // 3. add_event_listener_with_callback(\"click\", ...)\n        todo!()\n    }\n}",
         "hint": "Rc<Cell<u32>> moves into the closure, the closure moves into the struct, and Drop calls remove_event_listener_with_callback with the same callback reference.",
-        "solution": `use std::cell::Cell;
-use std::rc::Rc;
-use wasm_bindgen::prelude::*;
-use wasm_bindgen::JsCast;
-use web_sys::HtmlElement;
-
-pub struct ClickCounter {
-    button: HtmlElement,
-    count: Rc<Cell<u32>>,
-    on_click: Closure<dyn FnMut(web_sys::MouseEvent)>,
-}
-
-impl ClickCounter {
-    pub fn attach(button: &HtmlElement) -> Result<Self, JsValue> {
-        let count = Rc::new(Cell::new(0));
-        let seen = count.clone();
-
-        let on_click = Closure::<dyn FnMut(web_sys::MouseEvent)>::new(
-            move |_ev: web_sys::MouseEvent| {
-                seen.set(seen.get() + 1);
-            },
-        );
-
-        button.add_event_listener_with_callback(
-            "click",
-            on_click.as_ref().unchecked_ref(),
-        )?;
-
-        Ok(Self { button: button.clone(), count, on_click })
-    }
-
-    pub fn count(&self) -> u32 {
-        self.count.get()
-    }
-}
-
-impl Drop for ClickCounter {
-    fn drop(&mut self) {
-        let _ = self.button.remove_event_listener_with_callback(
-            "click",
-            self.on_click.as_ref().unchecked_ref(),
-        );
-    }
-}`
+        "solution": "use std::cell::Cell;\nuse std::rc::Rc;\nuse wasm_bindgen::prelude::*;\nuse wasm_bindgen::JsCast;\nuse web_sys::HtmlElement;\n\npub struct ClickCounter {\n    button: HtmlElement,\n    count: Rc<Cell<u32>>,\n    on_click: Closure<dyn FnMut(web_sys::MouseEvent)>,\n}\n\nimpl ClickCounter {\n    pub fn attach(button: &HtmlElement) -> Result<Self, JsValue> {\n        let count = Rc::new(Cell::new(0));\n        let seen = count.clone();\n\n        let on_click = Closure::<dyn FnMut(web_sys::MouseEvent)>::new(\n            move |_ev: web_sys::MouseEvent| {\n                seen.set(seen.get() + 1);\n            },\n        );\n\n        button.add_event_listener_with_callback(\n            \"click\",\n            on_click.as_ref().unchecked_ref(),\n        )?;\n\n        Ok(Self { button: button.clone(), count, on_click })\n    }\n\n    pub fn count(&self) -> u32 {\n        self.count.get()\n    }\n}\n\nimpl Drop for ClickCounter {\n    fn drop(&mut self) {\n        let _ = self.button.remove_event_listener_with_callback(\n            \"click\",\n            self.on_click.as_ref().unchecked_ref(),\n        );\n    }\n}"
       },
       "production": [
         "Every add_event_listener_with_callback has a matching removal in Drop or in a teardown path.",
@@ -728,8 +408,14 @@ impl Drop for ClickCounter {
         "Check Response::ok(): fetch rejects on network errors, not on 4xx or 5xx."
       ],
       "github": [
-        { "name": "wasm-bindgen/wasm-bindgen — closure and futures support", "url": "https://github.com/wasm-bindgen/wasm-bindgen" },
-        { "name": "rustwasm/gloo — ergonomic web APIs on top of web-sys", "url": "https://github.com/rustwasm/gloo" }
+        {
+          "name": "wasm-bindgen/wasm-bindgen — closure and futures support",
+          "url": "https://github.com/wasm-bindgen/wasm-bindgen"
+        },
+        {
+          "name": "rustwasm/gloo — ergonomic web APIs on top of web-sys",
+          "url": "https://github.com/ranile/gloo"
+        }
       ],
       "resources": [
         {
@@ -768,44 +454,7 @@ impl Drop for ClickCounter {
             "signal(0) returns a reader and a writer. Reading inside a reactive scope subscribes that scope; writing marks exactly those subscribers dirty and schedules their updates. A view! expression compiles into DOM nodes plus effects, so changing one count touches one text node — there is no tree to diff, and no props to compare.",
             "This is why Leptos code has no dependency arrays. Dependencies are discovered by reading: an effect that calls total() re-runs when anything total() reads changes. The trade-off is that an accidental read inside an effect widens its dependency set, and the reactive graph, not the component tree, becomes the thing you debug."
           ],
-          "code": `use leptos::prelude::*;
-
-#[component]
-pub fn LatencyCard() -> impl IntoView {
-    let (samples, set_samples) = signal(Vec::<f64>::new());
-    let (paused, set_paused) = signal(false);
-
-    // Derived state: recomputed only when samples changes.
-    let p95 = Memo::new(move |_| {
-        let mut v = samples.get();
-        if v.is_empty() {
-            return 0.0;
-        }
-        v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-        let idx = ((v.len() - 1) as f64 * 0.95).round() as usize;
-        v[idx]
-    });
-
-    // Side effect, not render logic: runs after the DOM update.
-    Effect::new(move |_| {
-        if p95.get() > 250.0 {
-            leptos::logging::warn!("p95 above budget");
-        }
-    });
-
-    view! {
-        <section class="card" aria-live="polite">
-            <h2>"Latency"</h2>
-            <p>{move || format!("{:.1} ms p95", p95.get())}</p>
-            <button
-                aria-pressed=move || paused.get().to_string()
-                on:click=move |_| set_paused.update(|p| *p = !*p)
-            >
-                {move || if paused.get() { "Resume" } else { "Pause" }}
-            </button>
-        </section>
-    }
-}`,
+          "code": "use leptos::prelude::*;\n\n#[component]\npub fn LatencyCard() -> impl IntoView {\n    let (samples, set_samples) = signal(Vec::<f64>::new());\n    let (paused, set_paused) = signal(false);\n\n    // Derived state: recomputed only when samples changes.\n    let p95 = Memo::new(move |_| {\n        let mut v = samples.get();\n        if v.is_empty() {\n            return 0.0;\n        }\n        v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));\n        let idx = ((v.len() - 1) as f64 * 0.95).round() as usize;\n        v[idx]\n    });\n\n    // Side effect, not render logic: runs after the DOM update.\n    Effect::new(move |_| {\n        if p95.get() > 250.0 {\n            leptos::logging::warn!(\"p95 above budget\");\n        }\n    });\n\n    view! {\n        <section class=\"card\" aria-live=\"polite\">\n            <h2>\"Latency\"</h2>\n            <p>{move || format!(\"{:.1} ms p95\", p95.get())}</p>\n            <button\n                aria-pressed=move || paused.get().to_string()\n                on:click=move |_| set_paused.update(|p| *p = !*p)\n            >\n                {move || if paused.get() { \"Resume\" } else { \"Pause\" }}\n            </button>\n        </section>\n    }\n}",
           "tip": "Closures that read a signal are what make the DOM reactive; passing a value directly freezes it at render time."
         },
         {
@@ -814,33 +463,7 @@ pub fn LatencyCard() -> impl IntoView {
             "A #[component] function takes typed props and returns impl IntoView. Props are ordinary Rust values evaluated by the caller, so reactivity has to be passed in explicitly — either a signal or a closure. Children are a prop too, typed as Children or, when the parent re-renders, as ChildrenFn.",
             "Mounting differs per build target. A client-only app calls mount_to_body(App); a hydrated app calls hydrate_body(App) and expects the server to have produced identical markup. The same component tree serves both, which is the point — but only when rendering is deterministic."
           ],
-          "code": `use leptos::prelude::*;
-
-#[component]
-pub fn Stat(
-    label: &'static str,
-    #[prop(into)] value: Signal<String>,
-    #[prop(default = "—")] trend: &'static str,
-) -> impl IntoView {
-    view! {
-        <div class="stat">
-            <span class="stat-label">{label}</span>
-            <strong class="stat-value">{move || value.get()}</strong>
-            <span class="stat-trend">{trend}</span>
-        </div>
-    }
-}
-
-#[component]
-pub fn Summary() -> impl IntoView {
-    let (rps, set_rps) = signal(0u32);
-    let value = Signal::derive(move || format!("{rps} req/s"));
-
-    view! {
-        <Stat label="Throughput" value=value trend="+4%" />
-        <button on:click=move |_| set_rps.update(|n| *n += 1)>"Tick"</button>
-    }
-}`,
+          "code": "use leptos::prelude::*;\n\n#[component]\npub fn Stat(\n    label: &'static str,\n    #[prop(into)] value: Signal<String>,\n    #[prop(default = \"—\")] trend: &'static str,\n) -> impl IntoView {\n    view! {\n        <div class=\"stat\">\n            <span class=\"stat-label\">{label}</span>\n            <strong class=\"stat-value\">{move || value.get()}</strong>\n            <span class=\"stat-trend\">{trend}</span>\n        </div>\n    }\n}\n\n#[component]\npub fn Summary() -> impl IntoView {\n    let (rps, set_rps) = signal(0u32);\n    let value = Signal::derive(move || format!(\"{rps} req/s\"));\n\n    view! {\n        <Stat label=\"Throughput\" value=value trend=\"+4%\" />\n        <button on:click=move |_| set_rps.update(|n| *n += 1)>\"Tick\"</button>\n    }\n}",
           "list": [
             "Signals are Copy: pass them into closures instead of cloning data",
             "Signal::derive builds a read-only signal from a closure",
@@ -865,50 +488,9 @@ pub fn Summary() -> impl IntoView {
       ],
       "exercise": {
         "prompt": "Build a filter box and a derived match count. Typing must update the count without re-rendering the whole card, and the count must be announced politely to screen readers.",
-        "starter": `use leptos::prelude::*;
-
-#[component]
-pub fn IncidentFilter() -> impl IntoView {
-    // 1. a signal for the query
-    // 2. a Memo over a fixed list of incident titles
-    // 3. a view with <input> and an aria-live status line
-    todo!()
-}`,
+        "starter": "use leptos::prelude::*;\n\n#[component]\npub fn IncidentFilter() -> impl IntoView {\n    // 1. a signal for the query\n    // 2. a Memo over a fixed list of incident titles\n    // 3. a view with <input> and an aria-live status line\n    todo!()\n}",
         "hint": "query.get() inside the memo is the dependency. Render the status with a closure so it updates in place: move || format!(\"{} matches\", count.get()).",
-        "solution": `use leptos::prelude::*;
-
-const TITLES: &[&str] = &[
-    "checkout latency spike",
-    "kafka consumer lag",
-    "tls certificate expiring",
-    "disk pressure on node-7",
-];
-
-#[component]
-pub fn IncidentFilter() -> impl IntoView {
-    let (query, set_query) = signal(String::new());
-
-    let matches = Memo::new(move |_| {
-        let q = query.get().to_lowercase();
-        TITLES
-            .iter()
-            .filter(|t| q.is_empty() || t.to_lowercase().contains(&q))
-            .count()
-    });
-
-    view! {
-        <label for="incident-query">"Filter incidents"</label>
-        <input
-            id="incident-query"
-            type="search"
-            prop:value=move || query.get()
-            on:input=move |ev| set_query.set(event_target_value(&ev))
-        />
-        <p role="status" aria-live="polite">
-            {move || format!("{} matches", matches.get())}
-        </p>
-    }
-}`
+        "solution": "use leptos::prelude::*;\n\nconst TITLES: &[&str] = &[\n    \"checkout latency spike\",\n    \"kafka consumer lag\",\n    \"tls certificate expiring\",\n    \"disk pressure on node-7\",\n];\n\n#[component]\npub fn IncidentFilter() -> impl IntoView {\n    let (query, set_query) = signal(String::new());\n\n    let matches = Memo::new(move |_| {\n        let q = query.get().to_lowercase();\n        TITLES\n            .iter()\n            .filter(|t| q.is_empty() || t.to_lowercase().contains(&q))\n            .count()\n    });\n\n    view! {\n        <label for=\"incident-query\">\"Filter incidents\"</label>\n        <input\n            id=\"incident-query\"\n            type=\"search\"\n            prop:value=move || query.get()\n            on:input=move |ev| set_query.set(event_target_value(&ev))\n        />\n        <p role=\"status\" aria-live=\"polite\">\n            {move || format!(\"{} matches\", matches.get())}\n        </p>\n    }\n}"
       },
       "production": [
         "Every long-lived effect is created inside an owner so it is disposed with its component.",
@@ -965,8 +547,14 @@ pub fn IncidentFilter() -> impl IntoView {
         "An effect with no owner never stops; create it inside a component or an Owner::new scope."
       ],
       "github": [
-        { "name": "leptos-rs/leptos", "url": "https://github.com/leptos-rs/leptos" },
-        { "name": "leptos-rs/start-axum — SSR starter template", "url": "https://github.com/leptos-rs/start-axum" }
+        {
+          "name": "leptos-rs/leptos",
+          "url": "https://github.com/leptos-rs/leptos"
+        },
+        {
+          "name": "leptos-rs/start-axum — SSR starter template",
+          "url": "https://github.com/leptos-rs/start-axum"
+        }
       ],
       "resources": [
         {
@@ -1005,31 +593,7 @@ pub fn IncidentFilter() -> impl IntoView {
             "Yew keeps a virtual DOM. A component returns Html, Yew diffs it against the previous tree, and patches only what changed. That buys React-like ergonomics and component boundaries that are easy to reason about, at the cost of work proportional to the rendered subtree rather than to the changed values.",
             "Re-rendering is gated by PartialEq on props. If the parent renders and the child's props compare equal, the child is skipped entirely. That makes derive(PartialEq) on a Properties struct a performance decision, not boilerplate — and it makes a non-comparable field an accidental always-render."
           ],
-          "code": `use yew::prelude::*;
-
-#[derive(Properties, PartialEq)]
-pub struct GaugeProps {
-    pub label: AttrValue,
-    pub value: f64,
-    #[prop_or_default]
-    pub unit: Option<AttrValue>,
-}
-
-#[function_component]
-pub fn Gauge(props: &GaugeProps) -> Html {
-    let pct = (props.value.clamp(0.0, 1.0) * 100.0).round();
-    let unit = props.unit.clone().unwrap_or_else(|| AttrValue::from("%"));
-
-    html! {
-        <div class="gauge" role="img"
-             aria-label={format!("{}: {} {}", props.label, pct, unit)}>
-            <span class="gauge-label">{ props.label.clone() }</span>
-            <meter min="0" max="100" value={pct.to_string()}>
-                { format!("{pct}{unit}") }
-            </meter>
-        </div>
-    }
-}`,
+          "code": "use yew::prelude::*;\n\n#[derive(Properties, PartialEq)]\npub struct GaugeProps {\n    pub label: AttrValue,\n    pub value: f64,\n    #[prop_or_default]\n    pub unit: Option<AttrValue>,\n}\n\n#[function_component]\npub fn Gauge(props: &GaugeProps) -> Html {\n    let pct = (props.value.clamp(0.0, 1.0) * 100.0).round();\n    let unit = props.unit.clone().unwrap_or_else(|| AttrValue::from(\"%\"));\n\n    html! {\n        <div class=\"gauge\" role=\"img\"\n             aria-label={format!(\"{}: {} {}\", props.label, pct, unit)}>\n            <span class=\"gauge-label\">{ props.label.clone() }</span>\n            <meter min=\"0\" max=\"100\" value={pct.to_string()}>\n                { format!(\"{pct}{unit}\") }\n            </meter>\n        </div>\n    }\n}",
           "tip": "AttrValue is a cheap-to-clone string handle; use it in props instead of String so cloning during render does not allocate."
         },
         {
@@ -1038,54 +602,7 @@ pub fn Gauge(props: &GaugeProps) -> Html {
             "use_state returns a handle whose set() schedules a re-render. use_reducer is better when transitions have names: the reducer owns the transition function, and dispatchers can be cloned into children without dragging setters along. use_memo and use_callback exist to keep values and callbacks stable so children can skip renders.",
             "Every hook runs on every render in call order. That is why hooks cannot be called conditionally, and why a callback created inline in html! is a new value on every render — passing it to a memoized child defeats the equality check you just wrote."
           ],
-          "code": `use std::rc::Rc;
-use yew::prelude::*;
-
-#[derive(Clone, PartialEq)]
-pub struct Filters {
-    pub query: String,
-    pub errors_only: bool,
-}
-
-pub enum FilterAction {
-    Query(String),
-    ToggleErrors,
-    Reset,
-}
-
-impl Reducible for Filters {
-    type Action = FilterAction;
-
-    fn reduce(self: Rc<Self>, action: Self::Action) -> Rc<Self> {
-        let mut next = (*self).clone();
-        match action {
-            FilterAction::Query(q) => next.query = q,
-            FilterAction::ToggleErrors => next.errors_only = !next.errors_only,
-            FilterAction::Reset => next = Filters { query: String::new(), errors_only: false },
-        }
-        Rc::new(next)
-    }
-}
-
-#[function_component]
-pub fn FilterBar() -> Html {
-    let filters = use_reducer(|| Filters { query: String::new(), errors_only: false });
-
-    let oninput = {
-        let filters = filters.clone();
-        Callback::from(move |e: InputEvent| {
-            let input: web_sys::HtmlInputElement = e.target_unchecked_into();
-            filters.dispatch(FilterAction::Query(input.value()));
-        })
-    };
-
-    html! {
-        <label>
-            { "Filter" }
-            <input type="search" {oninput} value={filters.query.clone()} />
-        </label>
-    }
-}`,
+          "code": "use std::rc::Rc;\nuse yew::prelude::*;\n\n#[derive(Clone, PartialEq)]\npub struct Filters {\n    pub query: String,\n    pub errors_only: bool,\n}\n\npub enum FilterAction {\n    Query(String),\n    ToggleErrors,\n    Reset,\n}\n\nimpl Reducible for Filters {\n    type Action = FilterAction;\n\n    fn reduce(self: Rc<Self>, action: Self::Action) -> Rc<Self> {\n        let mut next = (*self).clone();\n        match action {\n            FilterAction::Query(q) => next.query = q,\n            FilterAction::ToggleErrors => next.errors_only = !next.errors_only,\n            FilterAction::Reset => next = Filters { query: String::new(), errors_only: false },\n        }\n        Rc::new(next)\n    }\n}\n\n#[function_component]\npub fn FilterBar() -> Html {\n    let filters = use_reducer(|| Filters { query: String::new(), errors_only: false });\n\n    let oninput = {\n        let filters = filters.clone();\n        Callback::from(move |e: InputEvent| {\n            let input: web_sys::HtmlInputElement = e.target_unchecked_into();\n            filters.dispatch(FilterAction::Query(input.value()));\n        })\n    };\n\n    html! {\n        <label>\n            { \"Filter\" }\n            <input type=\"search\" {oninput} value={filters.query.clone()} />\n        </label>\n    }\n}",
           "list": [
             "Clone handles, never data: UseReducerHandle and Callback are cheap",
             "Derive PartialEq on every Properties struct",
@@ -1110,80 +627,9 @@ pub fn FilterBar() -> Html {
       ],
       "exercise": {
         "prompt": "Add a search box that filters a list of incidents. Each row must be its own component taking only the row's data, so typing does not re-render unrelated rows.",
-        "starter": `use yew::prelude::*;
-
-#[derive(Clone, PartialEq)]
-pub struct Incident {
-    pub id: u32,
-    pub title: AttrValue,
-}
-
-#[function_component]
-pub fn IncidentList() -> Html {
-    // 1. use_state for the query
-    // 2. filter in render
-    // 3. a Row component with PartialEq props
-    todo!()
-}`,
+        "starter": "use yew::prelude::*;\n\n#[derive(Clone, PartialEq)]\npub struct Incident {\n    pub id: u32,\n    pub title: AttrValue,\n}\n\n#[function_component]\npub fn IncidentList() -> Html {\n    // 1. use_state for the query\n    // 2. filter in render\n    // 3. a Row component with PartialEq props\n    todo!()\n}",
         "hint": "Give Row a Properties struct with a single Incident field and derive PartialEq. AttrValue makes the String comparison cheap, and the key keeps DOM nodes stable.",
-        "solution": `use yew::prelude::*;
-
-#[derive(Clone, PartialEq)]
-pub struct Incident {
-    pub id: u32,
-    pub title: AttrValue,
-}
-
-#[derive(Properties, PartialEq)]
-pub struct RowProps {
-    pub incident: Incident,
-}
-
-#[function_component]
-fn Row(props: &RowProps) -> Html {
-    html! {
-        <li class="row">
-            <span class="id">{ props.incident.id }</span>
-            { props.incident.title.clone() }
-        </li>
-    }
-}
-
-#[function_component]
-pub fn IncidentList() -> Html {
-    let incidents = use_state(|| vec![
-        Incident { id: 1, title: AttrValue::from("checkout latency spike") },
-        Incident { id: 2, title: AttrValue::from("kafka consumer lag") },
-        Incident { id: 3, title: AttrValue::from("disk pressure on node-7") },
-    ]);
-    let query = use_state(String::new);
-
-    let oninput = {
-        let query = query.clone();
-        Callback::from(move |e: InputEvent| {
-            let input: web_sys::HtmlInputElement = e.target_unchecked_into();
-            query.set(input.value());
-        })
-    };
-
-    let needle = query.to_lowercase();
-    let visible: Vec<Incident> = incidents
-        .iter()
-        .filter(|i| needle.is_empty() || i.title.to_lowercase().contains(&needle))
-        .cloned()
-        .collect();
-
-    html! {
-        <>
-            <input type="search" {oninput} value={(*query).clone()} />
-            <ul class="incidents">
-                { for visible.iter().map(|i| html! {
-                    <Row key={i.id} incident={i.clone()} />
-                }) }
-            </ul>
-        </>
-    }
-}`
+        "solution": "use yew::prelude::*;\n\n#[derive(Clone, PartialEq)]\npub struct Incident {\n    pub id: u32,\n    pub title: AttrValue,\n}\n\n#[derive(Properties, PartialEq)]\npub struct RowProps {\n    pub incident: Incident,\n}\n\n#[function_component]\nfn Row(props: &RowProps) -> Html {\n    html! {\n        <li class=\"row\">\n            <span class=\"id\">{ props.incident.id }</span>\n            { props.incident.title.clone() }\n        </li>\n    }\n}\n\n#[function_component]\npub fn IncidentList() -> Html {\n    let incidents = use_state(|| vec![\n        Incident { id: 1, title: AttrValue::from(\"checkout latency spike\") },\n        Incident { id: 2, title: AttrValue::from(\"kafka consumer lag\") },\n        Incident { id: 3, title: AttrValue::from(\"disk pressure on node-7\") },\n    ]);\n    let query = use_state(String::new);\n\n    let oninput = {\n        let query = query.clone();\n        Callback::from(move |e: InputEvent| {\n            let input: web_sys::HtmlInputElement = e.target_unchecked_into();\n            query.set(input.value());\n        })\n    };\n\n    let needle = query.to_lowercase();\n    let visible: Vec<Incident> = incidents\n        .iter()\n        .filter(|i| needle.is_empty() || i.title.to_lowercase().contains(&needle))\n        .cloned()\n        .collect();\n\n    html! {\n        <>\n            <input type=\"search\" {oninput} value={(*query).clone()} />\n            <ul class=\"incidents\">\n                { for visible.iter().map(|i| html! {\n                    <Row key={i.id} incident={i.clone()} />\n                }) }\n            </ul>\n        </>\n    }\n}"
       },
       "production": [
         "Properties structs derive PartialEq; anything non-comparable is wrapped in a type that does.",
@@ -1240,8 +686,14 @@ pub fn IncidentList() -> Html {
         "Context that updates per keystroke re-renders every consumer — keep it local."
       ],
       "github": [
-        { "name": "yewstack/yew", "url": "https://github.com/yewstack/yew" },
-        { "name": "rustwasm/gloo — the web API layer Yew depends on", "url": "https://github.com/rustwasm/gloo" }
+        {
+          "name": "yewstack/yew",
+          "url": "https://github.com/yewstack/yew"
+        },
+        {
+          "name": "rustwasm/gloo — the web API layer Yew depends on",
+          "url": "https://github.com/ranile/gloo"
+        }
       ],
       "resources": [
         {
@@ -1280,43 +732,7 @@ pub fn IncidentList() -> Html {
             "rsx! compiles to a tree of typed element builders. Attributes and children are ordinary Rust expressions, so a conditional child is an if expression rather than a special directive, and a component is any function returning Element. Because the tree is typed, a misspelled attribute is a compile error instead of a silently ignored string.",
             "Dioxus owns a virtual DOM like Yew, but the renderer is swappable: dioxus-web targets the DOM, the desktop renderer embeds a webview, and the same tree can be rendered to a string for SSR. That is the pitch — one codebase, several platforms — and the cost is a layer of indirection between your code and any one platform's API."
           ],
-          "code": `use dioxus::prelude::*;
-
-#[derive(Props, Clone, PartialEq)]
-struct CardProps {
-    title: String,
-    #[props(default)]
-    subtitle: Option<String>,
-}
-
-#[component]
-fn MetricCard(props: CardProps) -> Element {
-    rsx! {
-        article { class: "card",
-            h3 { "{props.title}" }
-            if let Some(sub) = props.subtitle.as_ref() {
-                p { class: "sub", "{sub}" }
-            }
-        }
-    }
-}
-
-fn App() -> Element {
-    let mut rps = use_signal(|| 0u32);
-
-    rsx! {
-        MetricCard {
-            title: "Throughput".to_string(),
-            subtitle: Some("requests per second".to_string()),
-        }
-        p { "Current: {rps}" }
-        button { onclick: move |_| rps += 1, "Tick" }
-    }
-}
-
-fn main() {
-    dioxus::launch(App);
-}`,
+          "code": "use dioxus::prelude::*;\n\n#[derive(Props, Clone, PartialEq)]\nstruct CardProps {\n    title: String,\n    #[props(default)]\n    subtitle: Option<String>,\n}\n\n#[component]\nfn MetricCard(props: CardProps) -> Element {\n    rsx! {\n        article { class: \"card\",\n            h3 { \"{props.title}\" }\n            if let Some(sub) = props.subtitle.as_ref() {\n                p { class: \"sub\", \"{sub}\" }\n            }\n        }\n    }\n}\n\nfn App() -> Element {\n    let mut rps = use_signal(|| 0u32);\n\n    rsx! {\n        MetricCard {\n            title: \"Throughput\".to_string(),\n            subtitle: Some(\"requests per second\".to_string()),\n        }\n        p { \"Current: {rps}\" }\n        button { onclick: move |_| rps += 1, \"Tick\" }\n    }\n}\n\nfn main() {\n    dioxus::launch(App);\n}",
           "tip": "#[derive(Props)] plus Clone and PartialEq is the minimum; the framework uses equality to skip re-rendering children."
         },
         {
@@ -1349,65 +765,9 @@ fn main() {
       ],
       "exercise": {
         "prompt": "Write a StatusBadge component with typed props: a required status string and an optional detail line. Render it three times from App with different statuses, and toggle one of them with a signal.",
-        "starter": `use dioxus::prelude::*;
-
-#[derive(Props, Clone, PartialEq)]
-struct BadgeProps {
-    // status: String
-    // detail: Option<String>, defaulted
-}
-
-#[component]
-fn StatusBadge(props: BadgeProps) -> Element {
-    todo!()
-}
-
-fn App() -> Element {
-    // a signal toggling one badge between "degraded" and "healthy"
-    todo!()
-}`,
+        "starter": "use dioxus::prelude::*;\n\n#[derive(Props, Clone, PartialEq)]\nstruct BadgeProps {\n    // status: String\n    // detail: Option<String>, defaulted\n}\n\n#[component]\nfn StatusBadge(props: BadgeProps) -> Element {\n    todo!()\n}\n\nfn App() -> Element {\n    // a signal toggling one badge between \"degraded\" and \"healthy\"\n    todo!()\n}",
         "hint": "#[props(default)] makes an Option prop optional. Use rsx! with if let Some(detail) to render the second line, and a signal read as {state} inside a string literal.",
-        "solution": `use dioxus::prelude::*;
-
-#[derive(Props, Clone, PartialEq)]
-struct BadgeProps {
-    status: String,
-    #[props(default)]
-    detail: Option<String>,
-}
-
-#[component]
-fn StatusBadge(props: BadgeProps) -> Element {
-    let class = match props.status.as_str() {
-        "healthy" => "badge badge-ok",
-        "degraded" => "badge badge-warn",
-        _ => "badge badge-bad",
-    };
-
-    rsx! {
-        div { class: "{class}", role: "status",
-            strong { "{props.status}" }
-            if let Some(detail) = props.detail.as_ref() {
-                span { class: "detail", "{detail}" }
-            }
-        }
-    }
-}
-
-fn App() -> Element {
-    let mut degraded = use_signal(|| false);
-    let status = if degraded() { "degraded" } else { "healthy" };
-
-    rsx! {
-        StatusBadge { status: "healthy".to_string(), detail: Some("all checks passing".to_string()) }
-        StatusBadge { status: status.to_string() }
-        StatusBadge { status: "unavailable".to_string(), detail: Some("api timeout".to_string()) }
-        button {
-            onclick: move |_| degraded.toggle(),
-            "Toggle middle badge"
-        }
-    }
-}`
+        "solution": "use dioxus::prelude::*;\n\n#[derive(Props, Clone, PartialEq)]\nstruct BadgeProps {\n    status: String,\n    #[props(default)]\n    detail: Option<String>,\n}\n\n#[component]\nfn StatusBadge(props: BadgeProps) -> Element {\n    let class = match props.status.as_str() {\n        \"healthy\" => \"badge badge-ok\",\n        \"degraded\" => \"badge badge-warn\",\n        _ => \"badge badge-bad\",\n    };\n\n    rsx! {\n        div { class: \"{class}\", role: \"status\",\n            strong { \"{props.status}\" }\n            if let Some(detail) = props.detail.as_ref() {\n                span { class: \"detail\", \"{detail}\" }\n            }\n        }\n    }\n}\n\nfn App() -> Element {\n    let mut degraded = use_signal(|| false);\n    let status = if degraded() { \"degraded\" } else { \"healthy\" };\n\n    rsx! {\n        StatusBadge { status: \"healthy\".to_string(), detail: Some(\"all checks passing\".to_string()) }\n        StatusBadge { status: status.to_string() }\n        StatusBadge { status: \"unavailable\".to_string(), detail: Some(\"api timeout\".to_string()) }\n        button {\n            onclick: move |_| degraded.toggle(),\n            \"Toggle middle badge\"\n        }\n    }\n}"
       },
       "production": [
         "Every component prop struct derives Clone and PartialEq so the renderer can skip unchanged children.",
@@ -1464,7 +824,10 @@ fn App() -> Element {
         "Measure the web bundle, not the desktop binary — they have different size floors."
       ],
       "github": [
-        { "name": "DioxusLabs/dioxus", "url": "https://github.com/DioxusLabs/dioxus" }
+        {
+          "name": "DioxusLabs/dioxus",
+          "url": "https://github.com/DioxusLabs/dioxus"
+        }
       ],
       "resources": [
         {
@@ -1498,32 +861,7 @@ fn App() -> Element {
             "web-sys is generated from browser WebIDL: every interface becomes a Rust type, and every method returns a Result or an Option. Because the browser surface is enormous, each type sits behind its own cargo feature. Using HtmlInputElement requires that feature; using its value() also requires the features for the types in the signature.",
             "The result is a feature-flag puzzle rather than an API puzzle. The compiler tells you which type is missing but not which feature provides it. The rule of thumb is that the feature is named after the type, and each method's documentation lists the features it needs. When the error names a type you never wrote, the missing feature is usually one used inside a signature you called, so read that method's docs before guessing."
           ],
-          "code": `# Cargo.toml
-[dependencies]
-wasm-bindgen = "0.2"
-web-sys = { version = "0.3", features = [
-    "Document",
-    "Element",
-    "HtmlElement",
-    "HtmlInputElement",
-    "KeyboardEvent",
-    "Window",
-] }
-
-# src/lib.rs
-use wasm_bindgen::JsCast;
-
-pub fn wire_search() -> Result<(), wasm_bindgen::JsValue> {
-    let window = web_sys::window().ok_or("no window")?;
-    let document = window.document().ok_or("no document")?;
-    let input = document
-        .get_element_by_id("search")
-        .ok_or("missing #search")?
-        .dyn_into::<web_sys::HtmlInputElement>()?;
-    input.set_placeholder("Filter incidents");
-    input.focus()?;
-    Ok(())
-}`,
+          "code": "# Cargo.toml\n[dependencies]\nwasm-bindgen = \"0.2\"\nweb-sys = { version = \"0.3\", features = [\n    \"Document\",\n    \"Element\",\n    \"HtmlElement\",\n    \"HtmlInputElement\",\n    \"KeyboardEvent\",\n    \"Window\",\n] }\n\n# src/lib.rs\nuse wasm_bindgen::JsCast;\n\npub fn wire_search() -> Result<(), wasm_bindgen::JsValue> {\n    let window = web_sys::window().ok_or(\"no window\")?;\n    let document = window.document().ok_or(\"no document\")?;\n    let input = document\n        .get_element_by_id(\"search\")\n        .ok_or(\"missing #search\")?\n        .dyn_into::<web_sys::HtmlInputElement>()?;\n    input.set_placeholder(\"Filter incidents\");\n    input.focus()?;\n    Ok(())\n}",
           "tip": "dyn_into returns Result, dyn_ref returns Option. Use dyn_ref when a null is a normal outcome and dyn_into when the wrong type is a bug."
         },
         {
@@ -1532,39 +870,7 @@ pub fn wire_search() -> Result<(), wasm_bindgen::JsValue> {
             "Every getter and setter is a JavaScript call, and some of them are worse than others. Reading offset_width or getBoundingClientRect forces the browser to flush pending style and layout. A loop that reads, writes, then reads again can force dozens of reflows and turn a 200-element list into a 100 ms frame. The cost is not the call itself but the flush it triggers, which can revalidate style for the whole document.",
             "The fix is mechanical: collect every read first, then perform every write, ideally inside a single animation frame. The DOM stays the same; the number of layout flushes drops from N to one. That structural change is usually worth more than any micro-optimization inside the loop itself."
           ],
-          "code": `use wasm_bindgen::prelude::*;
-use wasm_bindgen::JsCast;
-
-pub fn widen_all(selector: &str) -> Result<(), JsValue> {
-    let document = web_sys::window().unwrap().document().unwrap();
-    let nodes = document.query_selector_all(selector)?;
-
-    // Pass 1: read everything (one layout flush).
-    let mut widths = Vec::with_capacity(nodes.length() as usize);
-    for i in 0..nodes.length() {
-        let el = nodes
-            .item(i)
-            .and_then(|n| n.dyn_into::<web_sys::HtmlElement>().ok());
-        if let Some(el) = el {
-            widths.push(el.offset_width());
-        }
-    }
-
-    // Pass 2: write once, on the next frame.
-    let window = web_sys::window().unwrap();
-    let closure = Closure::once(move || {
-        for (i, w) in widths.into_iter().enumerate() {
-            let el = nodes
-                .item(i as u32)
-                .and_then(|n| n.dyn_into::<web_sys::HtmlElement>().ok());
-            if let Some(el) = el {
-                let _ = el.style().set_property("width", &format!("{}px", w + 8));
-            }
-        }
-    });
-    window.request_animation_frame(closure.into_js_value().unchecked_ref())?;
-    Ok(())
-}`,
+          "code": "use wasm_bindgen::prelude::*;\nuse wasm_bindgen::JsCast;\n\npub fn widen_all(selector: &str) -> Result<(), JsValue> {\n    let document = web_sys::window().unwrap().document().unwrap();\n    let nodes = document.query_selector_all(selector)?;\n\n    // Pass 1: read everything (one layout flush).\n    let mut widths = Vec::with_capacity(nodes.length() as usize);\n    for i in 0..nodes.length() {\n        let el = nodes\n            .item(i)\n            .and_then(|n| n.dyn_into::<web_sys::HtmlElement>().ok());\n        if let Some(el) = el {\n            widths.push(el.offset_width());\n        }\n    }\n\n    // Pass 2: write once, on the next frame.\n    let window = web_sys::window().unwrap();\n    let closure = Closure::once(move || {\n        for (i, w) in widths.into_iter().enumerate() {\n            let el = nodes\n                .item(i as u32)\n                .and_then(|n| n.dyn_into::<web_sys::HtmlElement>().ok());\n            if let Some(el) = el {\n                let _ = el.style().set_property(\"width\", &format!(\"{}px\", w + 8));\n            }\n        }\n    });\n    window.request_animation_frame(closure.into_js_value().unchecked_ref())?;\n    Ok(())\n}",
           "list": [
             "Batch reads, then writes; never alternate inside a loop",
             "Prefer CSS classes over inline style writes for repeated changes",
@@ -1583,55 +889,9 @@ pub fn widen_all(selector: &str) -> Result<(), JsValue> {
       ],
       "exercise": {
         "prompt": "Read the value of an input on click, write it into an output element's text, and toggle a CSS class when the value is empty. Return Result from every DOM call instead of unwrapping.",
-        "starter": `use wasm_bindgen::prelude::*;
-use wasm_bindgen::JsCast;
-
-pub fn wire_echo() -> Result<(), JsValue> {
-    // 1. query #echo-input as HtmlInputElement
-    // 2. query #echo-output as HtmlElement
-    // 3. on click: read value, write text, toggle class
-    todo!()
-}`,
+        "starter": "use wasm_bindgen::prelude::*;\nuse wasm_bindgen::JsCast;\n\npub fn wire_echo() -> Result<(), JsValue> {\n    // 1. query #echo-input as HtmlInputElement\n    // 2. query #echo-output as HtmlElement\n    // 3. on click: read value, write text, toggle class\n    todo!()\n}",
         "hint": "Store the closure in a struct or leak it deliberately with into_js_value; the input's value() returns String, and class_list().toggle_with_force(\"empty\", bool) sets the class deterministically.",
-        "solution": `use wasm_bindgen::prelude::*;
-use wasm_bindgen::JsCast;
-use web_sys::{HtmlElement, HtmlInputElement};
-
-pub fn wire_echo() -> Result<(), JsValue> {
-    let document = web_sys::window().unwrap().document().unwrap();
-
-    let input = document
-        .get_element_by_id("echo-input")
-        .ok_or("missing #echo-input")?
-        .dyn_into::<HtmlInputElement>()?;
-
-    let output = document
-        .get_element_by_id("echo-output")
-        .ok_or("missing #echo-output")?
-        .dyn_into::<HtmlElement>()?;
-
-    let button = document
-        .get_element_by_id("echo-run")
-        .ok_or("missing #echo-run")?
-        .dyn_into::<HtmlElement>()?;
-
-    let onclick = {
-        let input = input.clone();
-        let output = output.clone();
-        Closure::<dyn FnMut()>::new(move || {
-            let value = input.value();
-            output.set_text_content(Some(&value));
-            let empty = value.trim().is_empty();
-            let _ = output.class_list().toggle_with_force("empty", empty);
-            let _ = output.set_attribute("aria-invalid", if empty { "true" } else { "false" });
-        })
-    };
-
-    button.add_event_listener_with_callback("click", onclick.as_ref().unchecked_ref())?;
-    onclick.forget(); // page-lifetime listener: intentionally leaked
-
-    Ok(())
-}`
+        "solution": "use wasm_bindgen::prelude::*;\nuse wasm_bindgen::JsCast;\nuse web_sys::{HtmlElement, HtmlInputElement};\n\npub fn wire_echo() -> Result<(), JsValue> {\n    let document = web_sys::window().unwrap().document().unwrap();\n\n    let input = document\n        .get_element_by_id(\"echo-input\")\n        .ok_or(\"missing #echo-input\")?\n        .dyn_into::<HtmlInputElement>()?;\n\n    let output = document\n        .get_element_by_id(\"echo-output\")\n        .ok_or(\"missing #echo-output\")?\n        .dyn_into::<HtmlElement>()?;\n\n    let button = document\n        .get_element_by_id(\"echo-run\")\n        .ok_or(\"missing #echo-run\")?\n        .dyn_into::<HtmlElement>()?;\n\n    let onclick = {\n        let input = input.clone();\n        let output = output.clone();\n        Closure::<dyn FnMut()>::new(move || {\n            let value = input.value();\n            output.set_text_content(Some(&value));\n            let empty = value.trim().is_empty();\n            let _ = output.class_list().toggle_with_force(\"empty\", empty);\n            let _ = output.set_attribute(\"aria-invalid\", if empty { \"true\" } else { \"false\" });\n        })\n    };\n\n    button.add_event_listener_with_callback(\"click\", onclick.as_ref().unchecked_ref())?;\n    onclick.forget(); // page-lifetime listener: intentionally leaked\n\n    Ok(())\n}"
       },
       "production": [
         "web-sys features are listed explicitly in Cargo.toml; no glob features in a shipping crate.",
@@ -1687,8 +947,14 @@ pub fn wire_echo() -> Result<(), JsValue> {
         "into_js_value for callbacks JS owns, stored Closure for listeners you must remove."
       ],
       "github": [
-        { "name": "wasm-bindgen/wasm-bindgen — web-sys lives in crates/web-sys", "url": "https://github.com/wasm-bindgen/wasm-bindgen" },
-        { "name": "rustwasm/gloo — higher-level wrappers over web-sys", "url": "https://github.com/rustwasm/gloo" }
+        {
+          "name": "wasm-bindgen/wasm-bindgen — web-sys lives in crates/web-sys",
+          "url": "https://github.com/wasm-bindgen/wasm-bindgen"
+        },
+        {
+          "name": "rustwasm/gloo — higher-level wrappers over web-sys",
+          "url": "https://github.com/ranile/gloo"
+        }
       ],
       "resources": [
         {
@@ -1722,40 +988,7 @@ pub fn wire_echo() -> Result<(), JsValue> {
             "The server build enables the ssr feature; the client build enables hydrate. Both compile the same crate, so a component cannot quietly depend on the wrong runtime — the feature flags decide what the framework does, and the component code stays identical. The server renders to a string; the client adopts that HTML and attaches listeners.",
             "Hydration is strict about shape. The client must produce exactly the nodes the server produced, or it panics, duplicates nodes, or wires listeners to the wrong element. Anything non-deterministic during render — current time, random values, window size, localStorage — breaks that equality."
           ],
-          "code": `// app/src/lib.rs
-use leptos::prelude::*;
-use leptos_meta::{provide_meta_context, MetaTags, Stylesheet, Title};
-
-pub fn shell(options: LeptosOptions) -> impl IntoView {
-    view! {
-        <!DOCTYPE html>
-        <html lang="en">
-            <head>
-                <meta charset="utf-8"/>
-                <meta name="viewport" content="width=device-width, initial-scale=1"/>
-                <HydrationScripts options/>
-                <MetaTags/>
-            </head>
-            <body>
-                <App/>
-            </body>
-        </html>
-    }
-}
-
-#[component]
-pub fn App() -> impl IntoView {
-    provide_meta_context();
-
-    view! {
-        <Title text="Ops dashboard"/>
-        <Stylesheet id="leptos" href="/pkg/dashboard.css"/>
-        <main>
-            <h1>"Fleet overview"</h1>
-            <MetricsTable/>
-        </main>
-    }
-}`,
+          "code": "// app/src/lib.rs\nuse leptos::prelude::*;\nuse leptos_meta::{provide_meta_context, MetaTags, Stylesheet, Title};\n\npub fn shell(options: LeptosOptions) -> impl IntoView {\n    view! {\n        <!DOCTYPE html>\n        <html lang=\"en\">\n            <head>\n                <meta charset=\"utf-8\"/>\n                <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/>\n                <HydrationScripts options/>\n                <MetaTags/>\n            </head>\n            <body>\n                <App/>\n            </body>\n        </html>\n    }\n}\n\n#[component]\npub fn App() -> impl IntoView {\n    provide_meta_context();\n\n    view! {\n        <Title text=\"Ops dashboard\"/>\n        <Stylesheet id=\"leptos\" href=\"/pkg/dashboard.css\"/>\n        <main>\n            <h1>\"Fleet overview\"</h1>\n            <MetricsTable/>\n        </main>\n    }\n}",
           "tip": "HydrationScripts must be inside <head>: it emits the script that loads the wasm and the serialized resource data the client will reuse."
         },
         {
@@ -1764,29 +997,7 @@ pub fn App() -> impl IntoView {
             "generate_route_list walks the router in your app and produces the routes axum must serve, so the server never duplicates a route table by hand. leptos_routes then owns rendering for those paths, and file_and_error_handler serves the hashed JS and wasm assets plus a 404 fallback.",
             "Server functions are the other half. A #[server] function runs in-process during SSR and becomes an HTTP endpoint for the client, so the resource that renders on the server does not refetch during hydration — the serialized value is already in the HTML."
           ],
-          "code": `use axum::Router;
-use leptos::config::get_configuration;
-use leptos_axum::{generate_route_list, LeptosRoutes};
-
-#[tokio::main]
-async fn main() {
-    let conf = get_configuration(Some("Cargo.toml")).unwrap();
-    let leptos_options = conf.leptos_options;
-    let addr = leptos_options.site_addr;
-    let routes = generate_route_list(App);
-
-    let app = Router::new()
-        .leptos_routes(&leptos_options, routes, {
-            let options = leptos_options.clone();
-            move || shell(options.clone())
-        })
-        .fallback(leptos_axum::file_and_error_handler(shell))
-        .with_state(leptos_options);
-
-    let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
-    println!("listening on {addr}");
-    axum::serve(listener, app.into_make_service()).await.unwrap();
-}`,
+          "code": "use axum::Router;\nuse leptos::config::get_configuration;\nuse leptos_axum::{generate_route_list, LeptosRoutes};\n\n#[tokio::main]\nasync fn main() {\n    let conf = get_configuration(Some(\"Cargo.toml\")).unwrap();\n    let leptos_options = conf.leptos_options;\n    let addr = leptos_options.site_addr;\n    let routes = generate_route_list(App);\n\n    let app = Router::new()\n        .leptos_routes(&leptos_options, routes, {\n            let options = leptos_options.clone();\n            move || shell(options.clone())\n        })\n        .fallback(leptos_axum::file_and_error_handler(shell))\n        .with_state(leptos_options);\n\n    let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();\n    println!(\"listening on {addr}\");\n    axum::serve(listener, app.into_make_service()).await.unwrap();\n}",
           "list": [
             "get_configuration reads LeptosOptions from Cargo.toml metadata",
             "generate_route_list derives axum routes from the Router in the app",
@@ -1800,87 +1011,15 @@ async fn main() {
             "The client binary is tiny: install the panic hook, then call hydrate_body(App). It looks for the markup the server already produced and attaches behavior to it. If you see duplicated content, the client rendered instead of hydrating — usually because hydrate was not the enabled feature.",
             "Guard platform code with cfg. A window() call during SSR is not a browser call, and it either returns nothing or panics depending on the helper; the safe rule is that any code touching window, document or localStorage lives in an Effect, which only runs on the client, or behind #[cfg(feature = \"hydrate\")]."
           ],
-          "code": `// app/src/main.rs — the client entry point
-#[cfg(feature = "hydrate")]
-#[wasm_bindgen::prelude::wasm_bindgen]
-pub fn hydrate() {
-    console_error_panic_hook::set_once();
-    leptos::mount::hydrate_body(App);
-}
-
-#[cfg(not(feature = "hydrate"))]
-fn main() {
-    // The server binary uses the axum entry point instead.
-}
-
-// Deterministic render: no clock, no randomness, no storage reads.
-#[component]
-pub fn Uptime(seconds: u64) -> impl IntoView {
-    view! { <span class="uptime">{format_duration(seconds)}</span> }
-}`,
+          "code": "// app/src/main.rs — the client entry point\n#[cfg(feature = \"hydrate\")]\n#[wasm_bindgen::prelude::wasm_bindgen]\npub fn hydrate() {\n    console_error_panic_hook::set_once();\n    leptos::mount::hydrate_body(App);\n}\n\n#[cfg(not(feature = \"hydrate\"))]\nfn main() {\n    // The server binary uses the axum entry point instead.\n}\n\n// Deterministic render: no clock, no randomness, no storage reads.\n#[component]\npub fn Uptime(seconds: u64) -> impl IntoView {\n    view! { <span class=\"uptime\">{format_duration(seconds)}</span> }\n}",
           "tip": "If hydration panics, diff the first bytes of the served HTML against view-source of the client render: the first divergence is the component that read the environment."
         }
       ],
       "exercise": {
         "prompt": "Add a server function that returns metric rows and a component that renders them inside Suspense. The HTML must already contain the rows, and the client must not refetch them during hydration.",
-        "starter": `use leptos::prelude::*;
-
-#[server]
-pub async fn metrics() -> Result<Vec<Metric>, ServerFnError> {
-    todo!()
-}
-
-#[component]
-pub fn MetricsTable() -> impl IntoView {
-    // 1. Resource::new keyed on ()
-    // 2. Suspense with an aria-busy fallback
-    // 3. render each row
-    todo!()
-}`,
+        "starter": "use leptos::prelude::*;\n\n#[server]\npub async fn metrics() -> Result<Vec<Metric>, ServerFnError> {\n    todo!()\n}\n\n#[component]\npub fn MetricsTable() -> impl IntoView {\n    // 1. Resource::new keyed on ()\n    // 2. Suspense with an aria-busy fallback\n    // 3. render each row\n    todo!()\n}",
         "hint": "Resource::new(|| (), |_| async move { metrics().await }) is enough; Suspense renders the fallback on the server only until the resource resolves, then the data is serialized into the HTML.",
-        "solution": `use leptos::prelude::*;
-use serde::{Deserialize, Serialize};
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Metric {
-    pub name: String,
-    pub p95_ms: f64,
-}
-
-#[server]
-pub async fn metrics() -> Result<Vec<Metric>, ServerFnError> {
-    // Server-only: replace with your store or database call.
-    Ok(vec![
-        Metric { name: "checkout".into(), p95_ms: 182.0 },
-        Metric { name: "search".into(), p95_ms: 74.5 },
-    ])
-}
-
-#[component]
-pub fn MetricsTable() -> impl IntoView {
-    let rows = Resource::new(|| (), |_| async move { metrics().await });
-
-    view! {
-        <Suspense fallback=|| view! { <p aria-busy="true">"Loading metrics…"</p> }>
-            {move || rows.get().map(|result| match result {
-                Ok(list) => view! {
-                    <table>
-                        <thead><tr><th>"Route"</th><th>"p95"</th></tr></thead>
-                        <tbody>
-                            {list.into_iter().map(|m| view! {
-                                <tr>
-                                    <td>{m.name}</td>
-                                    <td>{format!("{:.1} ms", m.p95_ms)}</td>
-                                </tr>
-                            }).collect_view()}
-                        </tbody>
-                    </table>
-                }.into_any(),
-                Err(e) => view! { <p class="error">{e.to_string()}</p> }.into_any(),
-            })}
-        </Suspense>
-    }
-}`
+        "solution": "use leptos::prelude::*;\nuse serde::{Deserialize, Serialize};\n\n#[derive(Clone, Debug, Serialize, Deserialize)]\npub struct Metric {\n    pub name: String,\n    pub p95_ms: f64,\n}\n\n#[server]\npub async fn metrics() -> Result<Vec<Metric>, ServerFnError> {\n    // Server-only: replace with your store or database call.\n    Ok(vec![\n        Metric { name: \"checkout\".into(), p95_ms: 182.0 },\n        Metric { name: \"search\".into(), p95_ms: 74.5 },\n    ])\n}\n\n#[component]\npub fn MetricsTable() -> impl IntoView {\n    let rows = Resource::new(|| (), |_| async move { metrics().await });\n\n    view! {\n        <Suspense fallback=|| view! { <p aria-busy=\"true\">\"Loading metrics…\"</p> }>\n            {move || rows.get().map(|result| match result {\n                Ok(list) => view! {\n                    <table>\n                        <thead><tr><th>\"Route\"</th><th>\"p95\"</th></tr></thead>\n                        <tbody>\n                            {list.into_iter().map(|m| view! {\n                                <tr>\n                                    <td>{m.name}</td>\n                                    <td>{format!(\"{:.1} ms\", m.p95_ms)}</td>\n                                </tr>\n                            }).collect_view()}\n                        </tbody>\n                    </table>\n                }.into_any(),\n                Err(e) => view! { <p class=\"error\">{e.to_string()}</p> }.into_any(),\n            })}\n        </Suspense>\n    }\n}"
       },
       "production": [
         "Render output is deterministic: no clock, randomness or storage reads outside Effects.",
@@ -1938,8 +1077,14 @@ pub fn MetricsTable() -> impl IntoView {
         "generate_route_list keeps axum routes and the Leptos router in sync; do not hand-write them."
       ],
       "github": [
-        { "name": "leptos-rs/leptos — SSR and hydration examples", "url": "https://github.com/leptos-rs/leptos" },
-        { "name": "tokio-rs/axum", "url": "https://github.com/tokio-rs/axum" }
+        {
+          "name": "leptos-rs/leptos — SSR and hydration examples",
+          "url": "https://github.com/leptos-rs/leptos"
+        },
+        {
+          "name": "tokio-rs/axum",
+          "url": "https://github.com/tokio-rs/axum"
+        }
       ],
       "resources": [
         {
@@ -1991,46 +1136,7 @@ pub fn MetricsTable() -> impl IntoView {
             "provide_context inserts a value into the owner tree and use_context pulls it out. The value must itself be reactive — an RwSignal, a signal tuple, or a struct of signals. Providing a plain struct gives children a snapshot: they read it once and never update, which is the most common 'context is broken' bug in every Rust UI framework.",
             "Copying signals into a struct is the cheapest way to get a typed, shared handle. The struct is Copy, so passing it costs nothing, and each field keeps its own dependency tracking, so a component that reads only theme does not re-render when the user changes."
           ],
-          "code": `use leptos::prelude::*;
-
-#[derive(Clone, Copy, PartialEq, Default)]
-pub enum Theme {
-    #[default]
-    Dark,
-    Light,
-}
-
-#[derive(Clone, Copy)]
-pub struct Session {
-    pub user: RwSignal<Option<String>>,
-    pub theme: RwSignal<Theme>,
-}
-
-#[component]
-pub fn Root() -> impl IntoView {
-    let session = Session {
-        user: RwSignal::new(None),
-        theme: RwSignal::new(Theme::default()),
-    };
-    provide_context(session);
-    view! { <Shell/> }
-}
-
-#[component]
-pub fn Shell() -> impl IntoView {
-    let session = use_context::<Session>().expect("Root provides Session");
-    let is_dark = move || session.theme.get() == Theme::Dark;
-
-    view! {
-        <main class:dark=is_dark>
-            <button on:click=move |_| {
-                session.theme.update(|t| {
-                    *t = if *t == Theme::Dark { Theme::Light } else { Theme::Dark }
-                });
-            }>"Toggle theme"</button>
-        </main>
-    }
-}`,
+          "code": "use leptos::prelude::*;\n\n#[derive(Clone, Copy, PartialEq, Default)]\npub enum Theme {\n    #[default]\n    Dark,\n    Light,\n}\n\n#[derive(Clone, Copy)]\npub struct Session {\n    pub user: RwSignal<Option<String>>,\n    pub theme: RwSignal<Theme>,\n}\n\n#[component]\npub fn Root() -> impl IntoView {\n    let session = Session {\n        user: RwSignal::new(None),\n        theme: RwSignal::new(Theme::default()),\n    };\n    provide_context(session);\n    view! { <Shell/> }\n}\n\n#[component]\npub fn Shell() -> impl IntoView {\n    let session = use_context::<Session>().expect(\"Root provides Session\");\n    let is_dark = move || session.theme.get() == Theme::Dark;\n\n    view! {\n        <main class:dark=is_dark>\n            <button on:click=move |_| {\n                session.theme.update(|t| {\n                    *t = if *t == Theme::Dark { Theme::Light } else { Theme::Dark }\n                });\n            }>\"Toggle theme\"</button>\n        </main>\n    }\n}",
           "tip": "If a child renders once and never again, you provided a value; if it re-renders too often, you provided one signal where several would do."
         },
         {
@@ -2039,24 +1145,7 @@ pub fn Shell() -> impl IntoView {
             "A Resource is keyed: the source closure decides when to refetch, and the fetcher is async. Read it with get(), which returns Option<Result<T, E>>, so loading, error and ready are explicit states rather than a boolean you have to keep in sync. Mutations go through an Action or a server function, and freshness comes from refetching, not from writing into the cache.",
             "Do not copy a resource value into a signal to make it easier to use. You then own invalidation by hand and lose the SSR serialization that makes hydration free. If a row needs optimistic updates, keep a separate overlay signal and merge it at render time, so the server remains the source of truth."
           ],
-          "code": `use leptos::prelude::*;
-
-#[component]
-pub fn Incidents() -> impl IntoView {
-    let page = RwSignal::new(1u32);
-    let rows = Resource::new(move || page.get(), |p| async move { fetch_page(p).await });
-
-    view! {
-        <button on:click=move |_| page.update(|p| *p += 1)>"Next page"</button>
-        {move || match rows.get() {
-            None => view! { <p aria-busy="true">"Loading…"</p> }.into_any(),
-            Some(Err(e)) => view! { <p class="error">{e.to_string()}</p> }.into_any(),
-            Some(Ok(list)) => view! {
-                <ul>{list.into_iter().map(|r| view! { <li>{r.name}</li> }).collect_view()}</ul>
-            }.into_any(),
-        }}
-    }
-}`,
+          "code": "use leptos::prelude::*;\n\n#[component]\npub fn Incidents() -> impl IntoView {\n    let page = RwSignal::new(1u32);\n    let rows = Resource::new(move || page.get(), |p| async move { fetch_page(p).await });\n\n    view! {\n        <button on:click=move |_| page.update(|p| *p += 1)>\"Next page\"</button>\n        {move || match rows.get() {\n            None => view! { <p aria-busy=\"true\">\"Loading…\"</p> }.into_any(),\n            Some(Err(e)) => view! { <p class=\"error\">{e.to_string()}</p> }.into_any(),\n            Some(Ok(list)) => view! {\n                <ul>{list.into_iter().map(|r| view! { <li>{r.name}</li> }).collect_view()}</ul>\n            }.into_any(),\n        }}\n    }\n}",
           "list": [
             "Source closure = cache key; if it changes, the resource refetches",
             "Match all three states explicitly so a stale page is impossible",
@@ -2067,59 +1156,9 @@ pub fn Incidents() -> impl IntoView {
       ],
       "exercise": {
         "prompt": "Provide a session context with a user signal and a theme signal, then build a header that reads only the user. Prove that toggling the theme does not re-render the header.",
-        "starter": `use leptos::prelude::*;
-
-#[derive(Clone, Copy)]
-pub struct Session {
-    pub user: RwSignal<Option<String>>,
-    pub theme: RwSignal<bool>, // true = dark
-}
-
-#[component]
-pub fn Header() -> impl IntoView {
-    // read only session.user
-    todo!()
-}`,
+        "starter": "use leptos::prelude::*;\n\n#[derive(Clone, Copy)]\npub struct Session {\n    pub user: RwSignal<Option<String>>,\n    pub theme: RwSignal<bool>, // true = dark\n}\n\n#[component]\npub fn Header() -> impl IntoView {\n    // read only session.user\n    todo!()\n}",
         "hint": "Read session.user inside its own closure so the header's effect depends on user alone. A closure that reads both signals subscribes to both, and the theme toggle will re-run it.",
-        "solution": `use leptos::prelude::*;
-
-#[derive(Clone, Copy)]
-pub struct Session {
-    pub user: RwSignal<Option<String>>,
-    pub theme: RwSignal<bool>,
-}
-
-#[component]
-pub fn Root() -> impl IntoView {
-    provide_context(Session {
-        user: RwSignal::new(Some("ada".to_string())),
-        theme: RwSignal::new(true),
-    });
-    view! { <Header/> <ThemeToggle/> }
-}
-
-#[component]
-pub fn Header() -> impl IntoView {
-    let session = use_context::<Session>().expect("Root provides Session");
-
-    // Only reads user: the theme toggle cannot invalidate this closure.
-    let greeting = move || match session.user.get() {
-        Some(name) => format!("Signed in as {name}"),
-        None => "Signed out".to_string(),
-    };
-
-    view! { <header>{greeting}</header> }
-}
-
-#[component]
-pub fn ThemeToggle() -> impl IntoView {
-    let session = use_context::<Session>().expect("Root provides Session");
-    view! {
-        <button on:click=move |_| session.theme.update(|t| *t = !*t)>
-            "Toggle theme"
-        </button>
-    }
-}`
+        "solution": "use leptos::prelude::*;\n\n#[derive(Clone, Copy)]\npub struct Session {\n    pub user: RwSignal<Option<String>>,\n    pub theme: RwSignal<bool>,\n}\n\n#[component]\npub fn Root() -> impl IntoView {\n    provide_context(Session {\n        user: RwSignal::new(Some(\"ada\".to_string())),\n        theme: RwSignal::new(true),\n    });\n    view! { <Header/> <ThemeToggle/> }\n}\n\n#[component]\npub fn Header() -> impl IntoView {\n    let session = use_context::<Session>().expect(\"Root provides Session\");\n\n    // Only reads user: the theme toggle cannot invalidate this closure.\n    let greeting = move || match session.user.get() {\n        Some(name) => format!(\"Signed in as {name}\"),\n        None => \"Signed out\".to_string(),\n    };\n\n    view! { <header>{greeting}</header> }\n}\n\n#[component]\npub fn ThemeToggle() -> impl IntoView {\n    let session = use_context::<Session>().expect(\"Root provides Session\");\n    view! {\n        <button on:click=move |_| session.theme.update(|t| *t = !*t)>\n            \"Toggle theme\"\n        </button>\n    }\n}"
       },
       "production": [
         "Each context value is a signal or a struct of signals, never a snapshot of data.",
@@ -2174,8 +1213,14 @@ pub fn ThemeToggle() -> impl IntoView {
         "Optimistic writes live in an overlay signal merged at render, not in the resource."
       ],
       "github": [
-        { "name": "leptos-rs/leptos — reactive graph and context", "url": "https://github.com/leptos-rs/leptos" },
-        { "name": "DioxusLabs/dioxus — signals and stores implementation", "url": "https://github.com/DioxusLabs/dioxus" }
+        {
+          "name": "leptos-rs/leptos — reactive graph and context",
+          "url": "https://github.com/leptos-rs/leptos"
+        },
+        {
+          "name": "DioxusLabs/dioxus — signals and stores implementation",
+          "url": "https://github.com/DioxusLabs/dioxus"
+        }
       ],
       "resources": [
         {
@@ -2223,32 +1268,7 @@ pub fn ThemeToggle() -> impl IntoView {
             "performance.mark and performance.measure put your own spans on the same timeline as the browser's work, so a slow render shows up next to the layout it caused. Wrap the suspicious region rather than the whole handler: a 200 ms handler with a 180 ms mark inside it tells you where to look.",
             "The second measurement is data volume. Count the bytes you move per update and the allocations per row. Passing a Float64Array once is one copy; calling a getter per element is N crossings plus N JS number boxes. Both numbers come from the same place: how much data crosses the boundary per interaction."
           ],
-          "code": `use wasm_bindgen::prelude::*;
-
-fn perf() -> web_sys::Performance {
-    web_sys::window().unwrap().performance().unwrap()
-}
-
-pub fn measure<T>(label: &str, f: impl FnOnce() -> T) -> T {
-    let p = perf();
-    let _ = p.mark(label);
-    let out = f();
-    let end = format!("{label}-end");
-    let _ = p.mark(&end);
-    let _ = p.measure_with_start_and_end(label, label, &end);
-    out
-}
-
-// One copy of N values instead of N boundary crossings.
-pub fn p95_from(buf: &js_sys::Float64Array) -> f64 {
-    let mut values = buf.to_vec();
-    if values.is_empty() {
-        return 0.0;
-    }
-    values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    let idx = ((values.len() - 1) as f64 * 0.95).round() as usize;
-    values[idx]
-}`,
+          "code": "use wasm_bindgen::prelude::*;\n\nfn perf() -> web_sys::Performance {\n    web_sys::window().unwrap().performance().unwrap()\n}\n\npub fn measure<T>(label: &str, f: impl FnOnce() -> T) -> T {\n    let p = perf();\n    let _ = p.mark(label);\n    let out = f();\n    let end = format!(\"{label}-end\");\n    let _ = p.mark(&end);\n    let _ = p.measure_with_start_and_end(label, label, &end);\n    out\n}\n\n// One copy of N values instead of N boundary crossings.\npub fn p95_from(buf: &js_sys::Float64Array) -> f64 {\n    let mut values = buf.to_vec();\n    if values.is_empty() {\n        return 0.0;\n    }\n    values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));\n    let idx = ((values.len() - 1) as f64 * 0.95).round() as usize;\n    values[idx]\n}",
           "list": [
             "Mark the region you are optimizing, not the whole app",
             "Record interactions, not just page load",
@@ -2262,62 +1282,15 @@ pub fn p95_from(buf: &js_sys::Float64Array) -> f64 {
             "Build settings matter, but they are the last lever. opt-level \"z\" or \"s\", fat LTO, codegen-units = 1 and panic = \"abort\" reduce size; wasm-opt -Oz usually takes another slice after that. What they do not do is fix a loop that formats a string per row.",
             "A 200 ms synchronous render blocks input and appears as a long task, and streaming updates make it worse: if every message re-renders the table, the app runs at the speed of its slowest message. Throttle at the source, coalesce into one animation frame, and virtualize beyond a few hundred rows. Those three changes usually beat any flag."
           ],
-          "code": `[profile.release]
-opt-level = "z"      # size first; use 3 if a hot loop is arithmetic
-lto = "fat"
-codegen-units = 1
-panic = "abort"
-strip = true
-
-# Smaller than any flag: remove unused web-sys features.
-# Then measure the result, compressed:
-#   wasm-opt -Oz -o out.wasm in.wasm
-#   twiggy top -n 20 out.wasm
-#   brotli -q 11 -c out.wasm | wc -c`,
+          "code": "[profile.release]\nopt-level = \"z\"      # size first; use 3 if a hot loop is arithmetic\nlto = \"fat\"\ncodegen-units = 1\npanic = \"abort\"\nstrip = true\n\n# Smaller than any flag: remove unused web-sys features.\n# Then measure the result, compressed:\n#   wasm-opt -Oz -o out.wasm in.wasm\n#   twiggy top -n 20 out.wasm\n#   brotli -q 11 -c out.wasm | wc -c",
           "tip": "panic = \"abort\" removes unwinding machinery, but every panic becomes an unrecoverable instance abort — keep the panic hook installed so you still get a message."
         }
       ],
       "exercise": {
         "prompt": "A chart pulls 10,000 samples with a getter per element. Replace it with a single typed-array transfer, then measure both versions with performance.measure and report the difference.",
-        "starter": `use wasm_bindgen::prelude::*;
-
-// Slow: one boundary crossing per element.
-pub fn sum_slow(get: &js_sys::Function, len: u32) -> f64 {
-    todo!()
-}
-
-// Fast: one copy, then pure Rust.
-pub fn sum_fast(buf: &js_sys::Float64Array) -> f64 {
-    todo!()
-}`,
+        "starter": "use wasm_bindgen::prelude::*;\n\n// Slow: one boundary crossing per element.\npub fn sum_slow(get: &js_sys::Function, len: u32) -> f64 {\n    todo!()\n}\n\n// Fast: one copy, then pure Rust.\npub fn sum_fast(buf: &js_sys::Float64Array) -> f64 {\n    todo!()\n}",
         "hint": "For the slow path, call js_sys::Reflect::get with an index and as_f64(). For the fast path, buf.to_vec() copies once; sum in Rust and return a single f64.",
-        "solution": `use wasm_bindgen::prelude::*;
-
-pub fn sum_slow(get: &js_sys::Function, len: u32) -> f64 {
-    let this = JsValue::NULL;
-    let mut total = 0.0;
-    for i in 0..len {
-        let idx = JsValue::from_f64(i as f64);
-        if let Ok(v) = get.call1(&this, &idx) {
-            total += v.as_f64().unwrap_or(0.0);
-        }
-    }
-    total
-}
-
-pub fn sum_fast(buf: &js_sys::Float64Array) -> f64 {
-    // One copy out of the JS heap, then pure Rust arithmetic.
-    buf.to_vec().iter().sum()
-}
-
-pub fn run_benchmark(samples: &js_sys::Float64Array) {
-    let p = web_sys::window().unwrap().performance().unwrap();
-    let _ = p.mark("sum-start");
-    let total = sum_fast(samples); // swap in sum_slow to reproduce the slow path
-    let _ = p.mark("sum-end");
-    let _ = p.measure_with_start_and_end("sum", "sum-start", "sum-end");
-    web_sys::console::log_1(&JsValue::from_f64(total));
-}`
+        "solution": "use wasm_bindgen::prelude::*;\n\npub fn sum_slow(get: &js_sys::Function, len: u32) -> f64 {\n    let this = JsValue::NULL;\n    let mut total = 0.0;\n    for i in 0..len {\n        let idx = JsValue::from_f64(i as f64);\n        if let Ok(v) = get.call1(&this, &idx) {\n            total += v.as_f64().unwrap_or(0.0);\n        }\n    }\n    total\n}\n\npub fn sum_fast(buf: &js_sys::Float64Array) -> f64 {\n    // One copy out of the JS heap, then pure Rust arithmetic.\n    buf.to_vec().iter().sum()\n}\n\npub fn run_benchmark(samples: &js_sys::Float64Array) {\n    let p = web_sys::window().unwrap().performance().unwrap();\n    let _ = p.mark(\"sum-start\");\n    let total = sum_fast(samples); // swap in sum_slow to reproduce the slow path\n    let _ = p.mark(\"sum-end\");\n    let _ = p.measure_with_start_and_end(\"sum\", \"sum-start\", \"sum-end\");\n    web_sys::console::log_1(&JsValue::from_f64(total));\n}"
       },
       "production": [
         "A p95 update-latency budget is measured in CI on a throttled profile, not on a developer laptop.",
@@ -2374,8 +1347,14 @@ pub fn run_benchmark(samples: &js_sys::Float64Array) {
         "Trim web-sys features, then wasm-opt -Oz, then measure compressed bytes."
       ],
       "github": [
-        { "name": "rustwasm/twiggy — code size profiler for wasm", "url": "https://github.com/rustwasm/twiggy" },
-        { "name": "WebAssembly/binaryen — the wasm-opt optimizer", "url": "https://github.com/WebAssembly/binaryen" }
+        {
+          "name": "rustwasm/twiggy — code size profiler for wasm",
+          "url": "https://github.com/AlexEne/twiggy"
+        },
+        {
+          "name": "WebAssembly/binaryen — the wasm-opt optimizer",
+          "url": "https://github.com/WebAssembly/binaryen"
+        }
       ],
       "resources": [
         {
@@ -2433,40 +1412,7 @@ pub fn run_benchmark(samples: &js_sys::Float64Array) {
             "wasm_bindgen_test_configure!(run_in_browser) tells the runner to execute in a real page instead of Node, which is what gives you document and window. From there the test is ordinary Rust: create a host element, set its HTML, query into it, act, assert, and remove it.",
             "Async tests work too: mark the function async and await a promise. That covers fetch, timers and anything else that resolves later, with the same runner and the same output format as synchronous tests. Reach for it when the behaviour under test is a promise, a timer or a network response."
           ],
-          "code": `use wasm_bindgen::JsCast;
-use wasm_bindgen_test::*;
-
-wasm_bindgen_test_configure!(run_in_browser);
-
-fn mount(html: &str) -> web_sys::Element {
-    let document = web_sys::window().unwrap().document().unwrap();
-    let host = document.create_element("div").unwrap();
-    host.set_inner_html(html);
-    document.body().unwrap().append_child(&host).unwrap();
-    host
-}
-
-#[wasm_bindgen_test]
-fn input_value_is_readable() {
-    let host = mount(r#"<input id="q" value="kafka"><p id="status"></p>"#);
-    let input = host
-        .query_selector("#q").unwrap().unwrap()
-        .dyn_into::<web_sys::HtmlInputElement>().unwrap();
-    let status = host.query_selector("#status").unwrap().unwrap();
-
-    assert_eq!(input.value(), "kafka");
-    status.set_text_content(Some("1 match"));
-    assert_eq!(status.text_content().unwrap(), "1 match");
-
-    host.remove();
-}
-
-#[wasm_bindgen_test]
-async fn awaits_a_promise() {
-    let promise = js_sys::Promise::resolve(&JsValue::from(42));
-    let value = wasm_bindgen_futures::JsFuture::from(promise).await.unwrap();
-    assert_eq!(value.as_f64(), Some(42.0));
-}`,
+          "code": "use wasm_bindgen::JsCast;\nuse wasm_bindgen_test::*;\n\nwasm_bindgen_test_configure!(run_in_browser);\n\nfn mount(html: &str) -> web_sys::Element {\n    let document = web_sys::window().unwrap().document().unwrap();\n    let host = document.create_element(\"div\").unwrap();\n    host.set_inner_html(html);\n    document.body().unwrap().append_child(&host).unwrap();\n    host\n}\n\n#[wasm_bindgen_test]\nfn input_value_is_readable() {\n    let host = mount(r#\"<input id=\"q\" value=\"kafka\"><p id=\"status\"></p>\"#);\n    let input = host\n        .query_selector(\"#q\").unwrap().unwrap()\n        .dyn_into::<web_sys::HtmlInputElement>().unwrap();\n    let status = host.query_selector(\"#status\").unwrap().unwrap();\n\n    assert_eq!(input.value(), \"kafka\");\n    status.set_text_content(Some(\"1 match\"));\n    assert_eq!(status.text_content().unwrap(), \"1 match\");\n\n    host.remove();\n}\n\n#[wasm_bindgen_test]\nasync fn awaits_a_promise() {\n    let promise = js_sys::Promise::resolve(&JsValue::from(42));\n    let value = wasm_bindgen_futures::JsFuture::from(promise).await.unwrap();\n    assert_eq!(value.as_f64(), Some(42.0));\n}",
           "list": [
             "run_in_browser is required for any DOM assertion",
             "Mount into a fresh host and remove it at the end",
@@ -2485,54 +1431,9 @@ async fn awaits_a_promise() {
       ],
       "exercise": {
         "prompt": "Write a browser test that mounts a search input, types into it by setting value and dispatching an input event, and asserts that a status element updates to the number of matching rows.",
-        "starter": `use wasm_bindgen_test::*;
-use wasm_bindgen::JsCast;
-
-wasm_bindgen_test_configure!(run_in_browser);
-
-#[wasm_bindgen_test]
-fn typing_updates_status() {
-    // 1. mount <input id="q"> and <p id="status">
-    // 2. set the value and dispatch an "input" event
-    // 3. assert the status text
-}`,
+        "starter": "use wasm_bindgen_test::*;\nuse wasm_bindgen::JsCast;\n\nwasm_bindgen_test_configure!(run_in_browser);\n\n#[wasm_bindgen_test]\nfn typing_updates_status() {\n    // 1. mount <input id=\"q\"> and <p id=\"status\">\n    // 2. set the value and dispatch an \"input\" event\n    // 3. assert the status text\n}",
         "hint": "Create the event with web_sys::Event::new(\"input\"), then input.dispatch_event(&event). Handle the event synchronously in the test so no await is needed.",
-        "solution": `use wasm_bindgen::prelude::*;
-use wasm_bindgen::JsCast;
-use wasm_bindgen_test::*;
-
-wasm_bindgen_test_configure!(run_in_browser);
-
-#[wasm_bindgen_test]
-fn typing_updates_status() {
-    let document = web_sys::window().unwrap().document().unwrap();
-    let host = document.create_element("div").unwrap();
-    host.set_inner_html(r#"<input id="q" value=""><p id="status">3 matches</p>"#);
-    document.body().unwrap().append_child(&host).unwrap();
-
-    let input = host
-        .query_selector("#q").unwrap().unwrap()
-        .dyn_into::<web_sys::HtmlInputElement>().unwrap();
-    let status = host.query_selector("#status").unwrap().unwrap();
-
-    let handler = {
-        let status = status.clone();
-        Closure::<dyn FnMut(web_sys::Event)>::new(move |_ev| {
-            status.set_text_content(Some("1 match"));
-        })
-    };
-    input
-        .add_event_listener_with_callback("input", handler.as_ref().unchecked_ref())
-        .unwrap();
-
-    input.set_value("kafka");
-    let event = web_sys::Event::new("input").unwrap();
-    input.dispatch_event(&event).unwrap();
-
-    assert_eq!(status.text_content().unwrap(), "1 match");
-    drop(handler);
-    host.remove();
-}`
+        "solution": "use wasm_bindgen::prelude::*;\nuse wasm_bindgen::JsCast;\nuse wasm_bindgen_test::*;\n\nwasm_bindgen_test_configure!(run_in_browser);\n\n#[wasm_bindgen_test]\nfn typing_updates_status() {\n    let document = web_sys::window().unwrap().document().unwrap();\n    let host = document.create_element(\"div\").unwrap();\n    host.set_inner_html(r#\"<input id=\"q\" value=\"\"><p id=\"status\">3 matches</p>\"#);\n    document.body().unwrap().append_child(&host).unwrap();\n\n    let input = host\n        .query_selector(\"#q\").unwrap().unwrap()\n        .dyn_into::<web_sys::HtmlInputElement>().unwrap();\n    let status = host.query_selector(\"#status\").unwrap().unwrap();\n\n    let handler = {\n        let status = status.clone();\n        Closure::<dyn FnMut(web_sys::Event)>::new(move |_ev| {\n            status.set_text_content(Some(\"1 match\"));\n        })\n    };\n    input\n        .add_event_listener_with_callback(\"input\", handler.as_ref().unchecked_ref())\n        .unwrap();\n\n    input.set_value(\"kafka\");\n    let event = web_sys::Event::new(\"input\").unwrap();\n    input.dispatch_event(&event).unwrap();\n\n    assert_eq!(status.text_content().unwrap(), \"1 match\");\n    drop(handler);\n    host.remove();\n}"
       },
       "production": [
         "The browser suite is small and targeted; pure logic is covered by native cargo test.",
@@ -2589,8 +1490,14 @@ fn typing_updates_status() {
         "wasm-pack test --headless --chrome is the CI entry point; pin the browser version."
       ],
       "github": [
-        { "name": "wasm-bindgen/wasm-bindgen — wasm-bindgen-test lives in crates/test", "url": "https://github.com/wasm-bindgen/wasm-bindgen" },
-        { "name": "dequelabs/axe-core — accessibility assertions for the e2e layer", "url": "https://github.com/dequelabs/axe-core" }
+        {
+          "name": "wasm-bindgen/wasm-bindgen — wasm-bindgen-test lives in crates/test",
+          "url": "https://github.com/wasm-bindgen/wasm-bindgen"
+        },
+        {
+          "name": "dequelabs/axe-core — accessibility assertions for the e2e layer",
+          "url": "https://github.com/dequelabs/axe-core"
+        }
       ],
       "resources": [
         {
@@ -2624,28 +1531,7 @@ fn typing_updates_status() {
             "A wasm frontend build is four steps, and each is replaceable. cargo builds the cdylib for wasm32-unknown-unknown, wasm-bindgen generates the JS glue, wasm-opt shrinks and optimizes the binary, and a bundler fingerprints and copies assets into dist. Trunk drives all four from an index.html that declares assets with data-trunk links.",
             "Frameworks ship their own orchestrator — cargo-leptos for Leptos, dx for Dioxus — but the stages are the same. Knowing them is what lets you debug a blank page: open the generated index.html, check that the wasm URL resolves, and confirm the MIME type the server returns."
           ],
-          "code": `<!-- index.html -->
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8"/>
-    <meta name="viewport" content="width=device-width, initial-scale=1"/>
-    <title>Ops dashboard</title>
-    <link data-trunk rel="css" href="styles/app.css"/>
-    <link data-trunk rel="rust" data-wasm-opt="z"/>
-  </head>
-  <body></body>
-</html>
-
-# Trunk.toml
-[build]
-target = "index.html"
-dist = "dist"
-release = true
-
-[serve]
-addresses = ["127.0.0.1"]
-port = 8080`,
+          "code": "<!-- index.html -->\n<!DOCTYPE html>\n<html lang=\"en\">\n  <head>\n    <meta charset=\"utf-8\"/>\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/>\n    <title>Ops dashboard</title>\n    <link data-trunk rel=\"css\" href=\"styles/app.css\"/>\n    <link data-trunk rel=\"rust\" data-wasm-opt=\"z\"/>\n  </head>\n  <body></body>\n</html>\n\n# Trunk.toml\n[build]\ntarget = \"index.html\"\ndist = \"dist\"\nrelease = true\n\n[serve]\naddresses = [\"127.0.0.1\"]\nport = 8080",
           "tip": "data-wasm-opt=\"z\" asks Trunk to run wasm-opt at size priority; drop the attribute while debugging, because optimized output is much harder to read in a profiler."
         },
         {
@@ -2654,20 +1540,7 @@ port = 8080`,
             "A size budget is only real if it fails a build. Build in release, compress with brotli, compare against a committed number, and exit non-zero above it. Without that, sizes creep by tens of kilobytes per feature and nobody notices until mobile users on a slow connection do.",
             "Track the wasm and the JS separately. A growing glue file usually means duplicated bindings or two wasm-bindgen versions in the dependency graph; cargo tree -i wasm-bindgen finds the second copy, and two copies both ship and both register types. Size regressions are rarely one big dependency; they are five small ones plus a duplicated binding crate, which is why the number must be tracked rather than eyeballed."
           ],
-          "code": `# .github/workflows/ci.yml (excerpt)
-- name: build
-  run: trunk build --release
-
-- name: size budget
-  run: |
-    set -euo pipefail
-    WASM=$(ls dist/*.wasm | head -1)
-    JS=$(ls dist/*.js | head -1)
-    W=$(brotli -q 11 -c "$WASM" | wc -c | tr -d ' ')
-    J=$(brotli -q 11 -c "$JS" | wc -c | tr -d ' ')
-    echo "wasm $W bytes (budget 180000), js $J bytes (budget 60000)"
-    test "$W" -le 180000
-    test "$J" -le 60000`,
+          "code": "# .github/workflows/ci.yml (excerpt)\n- name: build\n  run: trunk build --release\n\n- name: size budget\n  run: |\n    set -euo pipefail\n    WASM=$(ls dist/*.wasm | head -1)\n    JS=$(ls dist/*.js | head -1)\n    W=$(brotli -q 11 -c \"$WASM\" | wc -c | tr -d ' ')\n    J=$(brotli -q 11 -c \"$JS\" | wc -c | tr -d ' ')\n    echo \"wasm $W bytes (budget 180000), js $J bytes (budget 60000)\"\n    test \"$W\" -le 180000\n    test \"$J\" -le 60000",
           "list": [
             "Budget the compressed bytes, because that is what users download",
             "Fail the build, do not warn; warnings are ignored within a sprint",
@@ -2691,34 +1564,9 @@ port = 8080`,
       ],
       "exercise": {
         "prompt": "Write a CI step that builds the app, computes the brotli-compressed size of the wasm, prints it, and fails above a budget you choose. Then explain what you would check first if the number jumped by 40 KB in one PR.",
-        "starter": `# 1. build
-# 2. find the wasm
-# 3. compress and count bytes
-# 4. compare against a budget`,
+        "starter": "# 1. build\n# 2. find the wasm\n# 3. compress and count bytes\n# 4. compare against a budget",
         "hint": "brotli -q 11 -c file | wc -c gives the compressed size; set -euo pipefail makes any failing command abort the step. For the jump, check cargo tree -i wasm-bindgen and the diff in web-sys features.",
-        "solution": `#!/usr/bin/env bash
-set -euo pipefail
-
-BUDGET=\${BUDGET:-180000}
-
-trunk build --release
-
-WASM=$(find dist -maxdepth 1 -name '*.wasm' | head -1)
-if [ -z "$WASM" ]; then
-  echo "no wasm produced" >&2
-  exit 1
-fi
-
-BYTES=$(brotli -q 11 -c "$WASM" | wc -c | tr -d ' ')
-echo "compressed wasm: $BYTES bytes (budget $BUDGET)"
-
-if [ "$BYTES" -gt "$BUDGET" ]; then
-  echo "size budget exceeded by $((BYTES - BUDGET)) bytes" >&2
-  # First checks: duplicate wasm-bindgen versions, new web-sys features,
-  # a dependency that pulled in std formatting or regex.
-  cargo tree -i wasm-bindgen || true
-  exit 1
-fi`
+        "solution": "#!/usr/bin/env bash\nset -euo pipefail\n\nBUDGET=${BUDGET:-180000}\n\ntrunk build --release\n\nWASM=$(find dist -maxdepth 1 -name '*.wasm' | head -1)\nif [ -z \"$WASM\" ]; then\n  echo \"no wasm produced\" >&2\n  exit 1\nfi\n\nBYTES=$(brotli -q 11 -c \"$WASM\" | wc -c | tr -d ' ')\necho \"compressed wasm: $BYTES bytes (budget $BUDGET)\"\n\nif [ \"$BYTES\" -gt \"$BUDGET\" ]; then\n  echo \"size budget exceeded by $((BYTES - BUDGET)) bytes\" >&2\n  # First checks: duplicate wasm-bindgen versions, new web-sys features,\n  # a dependency that pulled in std formatting or regex.\n  cargo tree -i wasm-bindgen || true\n  exit 1\nfi"
       },
       "production": [
         "The size budget runs on every PR and blocks merges, not just reports.",
@@ -2775,8 +1623,14 @@ fi`
         "Pin the binaryen/wasm-opt version in CI so output is reproducible."
       ],
       "github": [
-        { "name": "trunk-rs/trunk", "url": "https://github.com/trunk-rs/trunk" },
-        { "name": "WebAssembly/binaryen", "url": "https://github.com/WebAssembly/binaryen" }
+        {
+          "name": "trunk-rs/trunk",
+          "url": "https://github.com/trunk-rs/trunk"
+        },
+        {
+          "name": "WebAssembly/binaryen",
+          "url": "https://github.com/WebAssembly/binaryen"
+        }
       ],
       "resources": [
         {
@@ -2796,7 +1650,7 @@ fi`
         },
         {
           "title": "MDN: WebAssembly concepts — loading and caching",
-          "url": "https://developer.mozilla.org/en-US/docs/WebAssembly/Concepts",
+          "url": "https://developer.mozilla.org/en-US/docs/WebAssembly/Guides/Concepts",
           "kind": "docs"
         }
       ]
@@ -2815,27 +1669,7 @@ fi`
             "wasm-pack runs the build and packages the result as an npm package. The --target flag decides what the generated JavaScript looks like: web expects an explicit init() call and works in a plain module script, bundler emits ESM imports of the .wasm that webpack and Vite understand, and nodejs emits CommonJS that loads the binary synchronously.",
             "Choosing the wrong one is the classic failure. --target bundler in a hand-written script fails because browsers cannot import a .wasm file as a module; --target web in a bundler works but requires the loader to fetch the binary itself. Decide by who imports the package, not by which one you tried first. That decision is much easier to make before the package exists than after a consumer reports a cryptic module-resolution error."
           ],
-          "code": `# Produce a browser package with an async init().
-wasm-pack build --release --target web --out-dir pkg --out-name dashboard
-
-# What you actually ship:
-ls pkg
-# dashboard.js       ESM glue with init()
-# dashboard_bg.wasm  the module itself
-# dashboard.d.ts     generated TypeScript types
-# package.json       module/types/files entries
-
-# Run the browser test suite headless.
-wasm-pack test --headless --chrome
-
-# Cargo.toml metadata wasm-pack uses
-# [package]
-# description = "Ops dashboard rendered in Rust"
-# license = "MIT OR Apache-2.0"
-# repository = "https://github.com/acme/dashboard"
-#
-# [lib]
-# crate-type = ["cdylib", "rlib"]`,
+          "code": "# Produce a browser package with an async init().\nwasm-pack build --release --target web --out-dir pkg --out-name dashboard\n\n# What you actually ship:\nls pkg\n# dashboard.js       ESM glue with init()\n# dashboard_bg.wasm  the module itself\n# dashboard.d.ts     generated TypeScript types\n# package.json       module/types/files entries\n\n# Run the browser test suite headless.\nwasm-pack test --headless --chrome\n\n# Cargo.toml metadata wasm-pack uses\n# [package]\n# description = \"Ops dashboard rendered in Rust\"\n# license = \"MIT OR Apache-2.0\"\n# repository = \"https://github.com/acme/dashboard\"\n#\n# [lib]\n# crate-type = [\"cdylib\", \"rlib\"]",
           "tip": "Keep rlib in crate-type: it lets cargo test run your pure logic natively while cdylib produces the wasm artifact."
         },
         {
@@ -2844,18 +1678,7 @@ wasm-pack test --headless --chrome
             "init() resolves once the wasm is instantiated, so every exported symbol must be used after that await. With --target web, init optionally takes a URL or Request, which is how you point at a CDN, a hashed filename, or a copy served from a different path.",
             "The generated .d.ts is part of the contract. Review it in the same diff as the Rust change: a Struct field that becomes Option<T> changes the TypeScript type, and a consumer's build should fail rather than silently pass undefined. Treat that file as generated API: diff it, review it, never hand-edit it."
           ],
-          "code": `import init, { Dashboard } from "./pkg/dashboard.js";
-
-// 1. Instantiate before touching any export.
-await init();
-
-const dashboard = new Dashboard();
-dashboard.push(12.5);
-dashboard.push(31.0);
-console.log(dashboard.snapshot()); // { samples: 2, p95_ms: 31 }
-
-// JS has no destructor for the Rust value.
-dashboard.free();`,
+          "code": "import init, { Dashboard } from \"./pkg/dashboard.js\";\n\n// 1. Instantiate before touching any export.\nawait init();\n\nconst dashboard = new Dashboard();\ndashboard.push(12.5);\ndashboard.push(31.0);\nconsole.log(dashboard.snapshot()); // { samples: 2, p95_ms: 31 }\n\n// JS has no destructor for the Rust value.\ndashboard.free();",
           "list": [
             "init() is async; nothing exported works before it resolves",
             "Pass an explicit URL when the wasm lives under a hashed name",
@@ -2879,41 +1702,9 @@ dashboard.free();`,
       ],
       "exercise": {
         "prompt": "Take a crate with a Counter struct and produce a web-target package. Write the JavaScript that imports it, instantiates it, increments twice, reads the value and frees the handle.",
-        "starter": `# 1. build for the web target with an out-dir and out-name
-# 2. write the JS that awaits init()
-
-import init, { Counter } from "./pkg/counter.js";`,
+        "starter": "# 1. build for the web target with an out-dir and out-name\n# 2. write the JS that awaits init()\n\nimport init, { Counter } from \"./pkg/counter.js\";",
         "hint": "The generated default export is the init function; named exports are your #[wasm_bindgen] items. Nothing works before await init() resolves.",
-        "solution": `# Build
-wasm-pack build --release --target web --out-dir pkg --out-name counter
-
-// main.js
-import init, { Counter } from "./pkg/counter.js";
-
-await init(); // fetches and instantiates counter_bg.wasm
-
-const counter = new Counter();
-counter.increment();
-counter.increment();
-
-console.log(counter.value); // 2
-counter.free();
-
-// Rust side that this consumes:
-//
-// #[wasm_bindgen]
-// pub struct Counter { value: u32 }
-//
-// #[wasm_bindgen]
-// impl Counter {
-//     #[wasm_bindgen(constructor)]
-//     pub fn new() -> Counter { Counter { value: 0 } }
-//
-//     pub fn increment(&mut self) { self.value += 1; }
-//
-//     #[wasm_bindgen(getter)]
-//     pub fn value(&self) -> u32 { self.value }
-// }`
+        "solution": "# Build\nwasm-pack build --release --target web --out-dir pkg --out-name counter\n\n// main.js\nimport init, { Counter } from \"./pkg/counter.js\";\n\nawait init(); // fetches and instantiates counter_bg.wasm\n\nconst counter = new Counter();\ncounter.increment();\ncounter.increment();\n\nconsole.log(counter.value); // 2\ncounter.free();\n\n// Rust side that this consumes:\n//\n// #[wasm_bindgen]\n// pub struct Counter { value: u32 }\n//\n// #[wasm_bindgen]\n// impl Counter {\n//     #[wasm_bindgen(constructor)]\n//     pub fn new() -> Counter { Counter { value: 0 } }\n//\n//     pub fn increment(&mut self) { self.value += 1; }\n//\n//     #[wasm_bindgen(getter)]\n//     pub fn value(&self) -> u32 { self.value }\n// }"
       },
       "production": [
         "The target matches the consumer: web for script tags, bundler for Vite/webpack, nodejs for CommonJS.",
@@ -2970,8 +1761,14 @@ counter.free();
         "The .d.ts is public API — review it when a Rust signature changes."
       ],
       "github": [
-        { "name": "wasm-bindgen/wasm-pack", "url": "https://github.com/wasm-bindgen/wasm-pack" },
-        { "name": "wasm-bindgen/wasm-bindgen", "url": "https://github.com/wasm-bindgen/wasm-bindgen" }
+        {
+          "name": "wasm-bindgen/wasm-pack",
+          "url": "https://github.com/wasm-bindgen/wasm-pack"
+        },
+        {
+          "name": "wasm-bindgen/wasm-bindgen",
+          "url": "https://github.com/wasm-bindgen/wasm-bindgen"
+        }
       ],
       "resources": [
         {
@@ -3018,41 +1815,7 @@ counter.free();
             "Worker::new_with_options with WorkerType::Module loads an ES module worker, which is what lets the worker script import the wasm glue. Attach the message handler with set_onmessage and keep the closure alive in the struct that owns the worker, exactly as with any other listener.",
             "Send small control messages as strings and bulk data as typed arrays. Reconstructing a Rust type on the other side with serde is convenient for control paths; for hot paths, agree on a binary layout and hand over an ArrayBuffer instead."
           ],
-          "code": `use wasm_bindgen::prelude::*;
-use wasm_bindgen::JsCast;
-use web_sys::{Worker, WorkerOptions, WorkerType};
-
-pub struct Aggregator {
-    worker: Worker,
-    on_message: Closure<dyn FnMut(web_sys::MessageEvent)>,
-}
-
-impl Aggregator {
-    pub fn spawn(script: &str) -> Result<Self, JsValue> {
-        let options = WorkerOptions::new();
-        options.set_type(WorkerType::Module);
-        let worker = Worker::new_with_options(script, &options)?;
-
-        let on_message = Closure::<dyn FnMut(web_sys::MessageEvent)>::new(
-            move |event: web_sys::MessageEvent| {
-                if let Some(text) = event.data().as_string() {
-                    leptos::logging::log!("worker: {text}");
-                }
-            },
-        );
-        worker.set_onmessage(Some(on_message.as_ref().unchecked_ref()));
-
-        Ok(Self { worker, on_message })
-    }
-
-    pub fn send(&self, text: &str) -> Result<(), JsValue> {
-        self.worker.post_message(&JsValue::from_str(text))
-    }
-
-    pub fn terminate(self) {
-        self.worker.terminate();
-    }
-}`,
+          "code": "use wasm_bindgen::prelude::*;\nuse wasm_bindgen::JsCast;\nuse web_sys::{Worker, WorkerOptions, WorkerType};\n\npub struct Aggregator {\n    worker: Worker,\n    on_message: Closure<dyn FnMut(web_sys::MessageEvent)>,\n}\n\nimpl Aggregator {\n    pub fn spawn(script: &str) -> Result<Self, JsValue> {\n        let options = WorkerOptions::new();\n        options.set_type(WorkerType::Module);\n        let worker = Worker::new_with_options(script, &options)?;\n\n        let on_message = Closure::<dyn FnMut(web_sys::MessageEvent)>::new(\n            move |event: web_sys::MessageEvent| {\n                if let Some(text) = event.data().as_string() {\n                    leptos::logging::log!(\"worker: {text}\");\n                }\n            },\n        );\n        worker.set_onmessage(Some(on_message.as_ref().unchecked_ref()));\n\n        Ok(Self { worker, on_message })\n    }\n\n    pub fn send(&self, text: &str) -> Result<(), JsValue> {\n        self.worker.post_message(&JsValue::from_str(text))\n    }\n\n    pub fn terminate(self) {\n        self.worker.terminate();\n    }\n}",
           "tip": "Call terminate() instead of dropping the Worker: a dropped handle does not stop the thread, and the worker keeps receiving messages nobody handles."
         },
         {
@@ -3061,18 +1824,7 @@ impl Aggregator {
             "The threads proposal adds SharedArrayBuffer and atomics, and browsers only expose them on cross-origin-isolated pages. That means Cross-Origin-Opener-Policy: same-origin and Cross-Origin-Embedder-Policy: require-corp on every response, plus a build with the atomics target features. No headers, no SharedArrayBuffer, regardless of what the Rust code does.",
             "wasm-bindgen-rayon builds a Rayon thread pool on top of that, so par_iter can run across workers inside one wasm module. It is genuinely useful for CPU-bound work and it is a commitment: every page that loads the module must be isolated from cross-origin resources, and every dependency must be built for the atomics target."
           ],
-          "code": `# 1. Build for atomics (build-std requires a nightly toolchain).
-RUSTFLAGS='-C target-feature=+atomics,+bulk-memory,+mutable-globals' \\
-  cargo build --target wasm32-unknown-unknown --release \\
-  -Z build-std=std,panic_abort
-
-# 2. The server must send both headers on every response,
-#    including the worker script and the wasm binary:
-#    Cross-Origin-Opener-Policy: same-origin
-#    Cross-Origin-Embedder-Policy: require-corp
-
-# 3. Verify before shipping: in the console,
-#    typeof SharedArrayBuffer === "object"  // false means no isolation`,
+          "code": "# 1. Build for atomics (build-std requires a nightly toolchain).\nRUSTFLAGS='-C target-feature=+atomics,+bulk-memory,+mutable-globals' \\\n  cargo build --target wasm32-unknown-unknown --release \\\n  -Z build-std=std,panic_abort\n\n# 2. The server must send both headers on every response,\n#    including the worker script and the wasm binary:\n#    Cross-Origin-Opener-Policy: same-origin\n#    Cross-Origin-Embedder-Policy: require-corp\n\n# 3. Verify before shipping: in the console,\n#    typeof SharedArrayBuffer === \"object\"  // false means no isolation",
           "list": [
             "COOP and COEP are all-or-nothing; one missing response disables isolation",
             "Third-party embeds that lack CORP headers will break",
@@ -3083,67 +1835,9 @@ RUSTFLAGS='-C target-feature=+atomics,+bulk-memory,+mutable-globals' \\
       ],
       "exercise": {
         "prompt": "Spawn a module worker, send it a JSON string, and log the reply. Keep the worker and its message closure alive in a struct, and terminate it explicitly.",
-        "starter": `use wasm_bindgen::prelude::*;
-use web_sys::Worker;
-
-pub struct Client {
-    // worker + closure
-}
-
-impl Client {
-    pub fn spawn(url: &str) -> Result<Self, JsValue> {
-        // WorkerOptions with WorkerType::Module
-        todo!()
-    }
-
-    pub fn send(&self, msg: &str) -> Result<(), JsValue> {
-        todo!()
-    }
-}`,
+        "starter": "use wasm_bindgen::prelude::*;\nuse web_sys::Worker;\n\npub struct Client {\n    // worker + closure\n}\n\nimpl Client {\n    pub fn spawn(url: &str) -> Result<Self, JsValue> {\n        // WorkerOptions with WorkerType::Module\n        todo!()\n    }\n\n    pub fn send(&self, msg: &str) -> Result<(), JsValue> {\n        todo!()\n    }\n}",
         "hint": "set_onmessage takes Option<&Function>, and the closure must live in the struct or it is dropped as soon as spawn returns.",
-        "solution": `use wasm_bindgen::prelude::*;
-use wasm_bindgen::JsCast;
-use web_sys::{Worker, WorkerOptions, WorkerType};
-
-pub struct Client {
-    worker: Worker,
-    on_message: Closure<dyn FnMut(web_sys::MessageEvent)>,
-}
-
-impl Client {
-    pub fn spawn(url: &str) -> Result<Self, JsValue> {
-        let options = WorkerOptions::new();
-        options.set_type(WorkerType::Module);
-        let worker = Worker::new_with_options(url, &options)?;
-
-        let on_message = Closure::<dyn FnMut(web_sys::MessageEvent)>::new(
-            move |event: web_sys::MessageEvent| {
-                let data = event.data();
-                if let Some(text) = data.as_string() {
-                    web_sys::console::log_1(&JsValue::from_str(&format!("reply: {text}")));
-                }
-            },
-        );
-        worker.set_onmessage(Some(on_message.as_ref().unchecked_ref()));
-
-        Ok(Self { worker, on_message })
-    }
-
-    pub fn send(&self, msg: &str) -> Result<(), JsValue> {
-        self.worker.post_message(&JsValue::from_str(msg))
-    }
-
-    pub fn shutdown(self) {
-        self.worker.terminate();
-    }
-}
-
-// worker.js
-// self.onmessage = async (ev) => {
-//   const { default: init, aggregate } = await import("./pkg/app.js");
-//   await init();
-//   self.postMessage(JSON.stringify(aggregate(ev.data)));
-// };`
+        "solution": "use wasm_bindgen::prelude::*;\nuse wasm_bindgen::JsCast;\nuse web_sys::{Worker, WorkerOptions, WorkerType};\n\npub struct Client {\n    worker: Worker,\n    on_message: Closure<dyn FnMut(web_sys::MessageEvent)>,\n}\n\nimpl Client {\n    pub fn spawn(url: &str) -> Result<Self, JsValue> {\n        let options = WorkerOptions::new();\n        options.set_type(WorkerType::Module);\n        let worker = Worker::new_with_options(url, &options)?;\n\n        let on_message = Closure::<dyn FnMut(web_sys::MessageEvent)>::new(\n            move |event: web_sys::MessageEvent| {\n                let data = event.data();\n                if let Some(text) = data.as_string() {\n                    web_sys::console::log_1(&JsValue::from_str(&format!(\"reply: {text}\")));\n                }\n            },\n        );\n        worker.set_onmessage(Some(on_message.as_ref().unchecked_ref()));\n\n        Ok(Self { worker, on_message })\n    }\n\n    pub fn send(&self, msg: &str) -> Result<(), JsValue> {\n        self.worker.post_message(&JsValue::from_str(msg))\n    }\n\n    pub fn shutdown(self) {\n        self.worker.terminate();\n    }\n}\n\n// worker.js\n// self.onmessage = async (ev) => {\n//   const { default: init, aggregate } = await import(\"./pkg/app.js\");\n//   await init();\n//   self.postMessage(JSON.stringify(aggregate(ev.data)));\n// };"
       },
       "production": [
         "Workers are terminated explicitly; no orphan thread keeps processing after unmount.",
@@ -3199,8 +1893,14 @@ impl Client {
         "SharedArrayBuffer needs COOP + COEP on every response, not just the HTML."
       ],
       "github": [
-        { "name": "GoogleChromeLabs/wasm-bindgen-rayon", "url": "https://github.com/GoogleChromeLabs/wasm-bindgen-rayon" },
-        { "name": "wasm-bindgen/wasm-bindgen — Worker bindings live in web-sys", "url": "https://github.com/wasm-bindgen/wasm-bindgen" }
+        {
+          "name": "GoogleChromeLabs/wasm-bindgen-rayon",
+          "url": "https://github.com/GoogleChromeLabs/wasm-bindgen-rayon"
+        },
+        {
+          "name": "wasm-bindgen/wasm-bindgen — Worker bindings live in web-sys",
+          "url": "https://github.com/wasm-bindgen/wasm-bindgen"
+        }
       ],
       "resources": [
         {
@@ -3239,44 +1939,7 @@ impl Client {
             "A canvas is a bitmap you draw into: get a context, issue draw calls, let the browser composite. That makes it right for charts with thousands of points and wrong for anything needing selection, selectable text or CSS styling. Whatever you draw is invisible to the accessibility tree unless you mirror it elsewhere.",
             "Device pixel ratio is the first bug. A canvas sized in CSS pixels looks blurry on a high-density display. Set canvas.width to css_width * dpr, keep the CSS size fixed, and scale the context by dpr so drawing code can keep working in CSS units. Get this wrong and every line looks soft on a retina screen while the code, the data and the layout are all correct."
           ],
-          "code": `use wasm_bindgen::prelude::*;
-use wasm_bindgen::JsCast;
-use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement};
-
-pub fn draw_sparkline(canvas: &HtmlCanvasElement, values: &[f64]) -> Result<(), JsValue> {
-    let dpr = web_sys::window().unwrap().device_pixel_ratio();
-    let css_w = canvas.client_width() as f64;
-    let css_h = canvas.client_height() as f64;
-
-    canvas.set_width((css_w * dpr) as u32);
-    canvas.set_height((css_h * dpr) as u32);
-
-    let ctx = canvas
-        .get_context("2d")?
-        .ok_or("no 2d context")?
-        .dyn_into::<CanvasRenderingContext2d>()?;
-
-    ctx.scale(dpr, dpr)?;
-    ctx.clear_rect(0.0, 0.0, css_w, css_h);
-
-    let max = values.iter().copied().fold(f64::MIN, f64::max).max(1.0);
-    let span = (values.len().max(2) - 1) as f64;
-
-    ctx.set_stroke_style_str("#4ade80");
-    ctx.set_line_width(2.0);
-    ctx.begin_path();
-    for (i, v) in values.iter().enumerate() {
-        let x = (i as f64 / span) * css_w;
-        let y = css_h - (v / max) * css_h;
-        if i == 0 {
-            ctx.move_to(x, y);
-        } else {
-            ctx.line_to(x, y);
-        }
-    }
-    ctx.stroke();
-    Ok(())
-}`,
+          "code": "use wasm_bindgen::prelude::*;\nuse wasm_bindgen::JsCast;\nuse web_sys::{CanvasRenderingContext2d, HtmlCanvasElement};\n\npub fn draw_sparkline(canvas: &HtmlCanvasElement, values: &[f64]) -> Result<(), JsValue> {\n    let dpr = web_sys::window().unwrap().device_pixel_ratio();\n    let css_w = canvas.client_width() as f64;\n    let css_h = canvas.client_height() as f64;\n\n    canvas.set_width((css_w * dpr) as u32);\n    canvas.set_height((css_h * dpr) as u32);\n\n    let ctx = canvas\n        .get_context(\"2d\")?\n        .ok_or(\"no 2d context\")?\n        .dyn_into::<CanvasRenderingContext2d>()?;\n\n    ctx.scale(dpr, dpr)?;\n    ctx.clear_rect(0.0, 0.0, css_w, css_h);\n\n    let max = values.iter().copied().fold(f64::MIN, f64::max).max(1.0);\n    let span = (values.len().max(2) - 1) as f64;\n\n    ctx.set_stroke_style_str(\"#4ade80\");\n    ctx.set_line_width(2.0);\n    ctx.begin_path();\n    for (i, v) in values.iter().enumerate() {\n        let x = (i as f64 / span) * css_w;\n        let y = css_h - (v / max) * css_h;\n        if i == 0 {\n            ctx.move_to(x, y);\n        } else {\n            ctx.line_to(x, y);\n        }\n    }\n    ctx.stroke();\n    Ok(())\n}",
           "tip": "Re-setting canvas.width clears the bitmap and resets the transform; do it on resize only, not on every frame."
         },
         {
@@ -3285,47 +1948,7 @@ pub fn draw_sparkline(canvas: &HtmlCanvasElement, values: &[f64]) -> Result<(), 
             "WebGL means compiling shaders, linking a program, uploading buffers, setting uniforms and drawing. web-sys exposes WebGlRenderingContext and WebGl2RenderingContext, but the code is verbose and failures are quiet: a shader that fails to compile returns null, and the reason is only in get_shader_info_log. That silence defines the API: nothing throws, and a black canvas is the only symptom.",
             "Write a small helper that compiles, checks, and returns Result with the log attached. That single function saves hours, because the alternative is a black canvas and no message. It pays for itself the first time a shader fails at 2 a.m., when the only other signal is a black rectangle. Write it before any drawing code."
           ],
-          "code": `pub fn compile_shader(
-    gl: &web_sys::WebGl2RenderingContext,
-    kind: u32,
-    source: &str,
-) -> Result<web_sys::WebGlShader, String> {
-    let shader = gl.create_shader(kind).ok_or("create_shader failed")?;
-    gl.shader_source(&shader, source);
-    gl.compile_shader(&shader);
-
-    if gl
-        .get_shader_parameter(&shader, web_sys::WebGl2RenderingContext::COMPILE_STATUS)
-        .as_bool()
-        .unwrap_or(false)
-    {
-        Ok(shader)
-    } else {
-        Err(gl
-            .get_shader_info_log(&shader)
-            .unwrap_or_else(|| "unknown shader error".to_string()))
-    }
-}
-
-pub fn link_program(
-    gl: &web_sys::WebGl2RenderingContext,
-    vs: &web_sys::WebGlShader,
-    fs: &web_sys::WebGlShader,
-) -> Result<web_sys::WebGlProgram, String> {
-    let program = gl.create_program().ok_or("create_program failed")?;
-    gl.attach_shader(&program, vs);
-    gl.attach_shader(&program, fs);
-    gl.link_program(&program);
-    if gl
-        .get_program_parameter(&program, web_sys::WebGl2RenderingContext::LINK_STATUS)
-        .as_bool()
-        .unwrap_or(false)
-    {
-        Ok(program)
-    } else {
-        Err(gl.get_program_info_log(&program).unwrap_or_default())
-    }
-}`,
+          "code": "pub fn compile_shader(\n    gl: &web_sys::WebGl2RenderingContext,\n    kind: u32,\n    source: &str,\n) -> Result<web_sys::WebGlShader, String> {\n    let shader = gl.create_shader(kind).ok_or(\"create_shader failed\")?;\n    gl.shader_source(&shader, source);\n    gl.compile_shader(&shader);\n\n    if gl\n        .get_shader_parameter(&shader, web_sys::WebGl2RenderingContext::COMPILE_STATUS)\n        .as_bool()\n        .unwrap_or(false)\n    {\n        Ok(shader)\n    } else {\n        Err(gl\n            .get_shader_info_log(&shader)\n            .unwrap_or_else(|| \"unknown shader error\".to_string()))\n    }\n}\n\npub fn link_program(\n    gl: &web_sys::WebGl2RenderingContext,\n    vs: &web_sys::WebGlShader,\n    fs: &web_sys::WebGlShader,\n) -> Result<web_sys::WebGlProgram, String> {\n    let program = gl.create_program().ok_or(\"create_program failed\")?;\n    gl.attach_shader(&program, vs);\n    gl.attach_shader(&program, fs);\n    gl.link_program(&program);\n    if gl\n        .get_program_parameter(&program, web_sys::WebGl2RenderingContext::LINK_STATUS)\n        .as_bool()\n        .unwrap_or(false)\n    {\n        Ok(program)\n    } else {\n        Err(gl.get_program_info_log(&program).unwrap_or_default())\n    }\n}",
           "list": [
             "Always check COMPILE_STATUS and LINK_STATUS",
             "Report the info log with the shader source line numbers",
@@ -3350,56 +1973,9 @@ pub fn link_program(
       ],
       "exercise": {
         "prompt": "Draw a bar chart on a canvas at the right device pixel ratio, then describe the two DOM elements you would add so the same data is available to a screen reader.",
-        "starter": `use wasm_bindgen::prelude::*;
-use web_sys::HtmlCanvasElement;
-
-pub fn draw_bars(canvas: &HtmlCanvasElement, values: &[f64]) -> Result<(), JsValue> {
-    // 1. size for devicePixelRatio
-    // 2. get the 2d context and scale
-    // 3. draw one filled rect per value
-    todo!()
-}`,
+        "starter": "use wasm_bindgen::prelude::*;\nuse web_sys::HtmlCanvasElement;\n\npub fn draw_bars(canvas: &HtmlCanvasElement, values: &[f64]) -> Result<(), JsValue> {\n    // 1. size for devicePixelRatio\n    // 2. get the 2d context and scale\n    // 3. draw one filled rect per value\n    todo!()\n}",
         "hint": "set_fill_style_str picks the colour; fill_rect(x, y, w, h) draws in CSS units once the context is scaled by dpr. For accessibility, a <table> with the same numbers plus an aria-label or a visually-hidden summary is enough.",
-        "solution": `use wasm_bindgen::prelude::*;
-use wasm_bindgen::JsCast;
-use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement};
-
-pub fn draw_bars(canvas: &HtmlCanvasElement, values: &[f64]) -> Result<(), JsValue> {
-    let dpr = web_sys::window().unwrap().device_pixel_ratio();
-    let css_w = canvas.client_width() as f64;
-    let css_h = canvas.client_height() as f64;
-    canvas.set_width((css_w * dpr) as u32);
-    canvas.set_height((css_h * dpr) as u32);
-
-    let ctx = canvas
-        .get_context("2d")?
-        .ok_or("no 2d context")?
-        .dyn_into::<CanvasRenderingContext2d>()?;
-    ctx.scale(dpr, dpr)?;
-    ctx.clear_rect(0.0, 0.0, css_w, css_h);
-
-    if values.is_empty() {
-        return Ok(());
-    }
-
-    let max = values.iter().copied().fold(f64::MIN, f64::max).max(1.0);
-    let slot = css_w / values.len() as f64;
-    let gap = (slot * 0.2).min(6.0);
-
-    ctx.set_fill_style_str("#60a5fa");
-    for (i, v) in values.iter().enumerate() {
-        let h = (v / max) * (css_h - 4.0);
-        let x = i as f64 * slot + gap / 2.0;
-        ctx.fill_rect(x, css_h - h, slot - gap, h);
-    }
-
-    // Accessibility mirror (in the DOM, not on the canvas):
-    // <figure aria-labelledby="chart-caption">
-    //   <figcaption id="chart-caption">Requests per minute, last 24 hours</figcaption>
-    //   <table class="visually-hidden"> ... one row per bar ... </table>
-    // </figure>
-    Ok(())
-}`
+        "solution": "use wasm_bindgen::prelude::*;\nuse wasm_bindgen::JsCast;\nuse web_sys::{CanvasRenderingContext2d, HtmlCanvasElement};\n\npub fn draw_bars(canvas: &HtmlCanvasElement, values: &[f64]) -> Result<(), JsValue> {\n    let dpr = web_sys::window().unwrap().device_pixel_ratio();\n    let css_w = canvas.client_width() as f64;\n    let css_h = canvas.client_height() as f64;\n    canvas.set_width((css_w * dpr) as u32);\n    canvas.set_height((css_h * dpr) as u32);\n\n    let ctx = canvas\n        .get_context(\"2d\")?\n        .ok_or(\"no 2d context\")?\n        .dyn_into::<CanvasRenderingContext2d>()?;\n    ctx.scale(dpr, dpr)?;\n    ctx.clear_rect(0.0, 0.0, css_w, css_h);\n\n    if values.is_empty() {\n        return Ok(());\n    }\n\n    let max = values.iter().copied().fold(f64::MIN, f64::max).max(1.0);\n    let slot = css_w / values.len() as f64;\n    let gap = (slot * 0.2).min(6.0);\n\n    ctx.set_fill_style_str(\"#60a5fa\");\n    for (i, v) in values.iter().enumerate() {\n        let h = (v / max) * (css_h - 4.0);\n        let x = i as f64 * slot + gap / 2.0;\n        ctx.fill_rect(x, css_h - h, slot - gap, h);\n    }\n\n    // Accessibility mirror (in the DOM, not on the canvas):\n    // <figure aria-labelledby=\"chart-caption\">\n    //   <figcaption id=\"chart-caption\">Requests per minute, last 24 hours</figcaption>\n    //   <table class=\"visually-hidden\"> ... one row per bar ... </table>\n    // </figure>\n    Ok(())\n}"
       },
       "production": [
         "Canvas backing store matches devicePixelRatio, and the transform is reset only on resize.",
@@ -3456,8 +2032,14 @@ pub fn draw_bars(canvas: &HtmlCanvasElement, values: &[f64]) -> Result<(), JsVal
         "Canvas is invisible to assistive tech: mirror the numbers in the DOM."
       ],
       "github": [
-        { "name": "gfx-rs/wgpu", "url": "https://github.com/gfx-rs/wgpu" },
-        { "name": "wasm-bindgen/wasm-bindgen — canvas bindings in web-sys", "url": "https://github.com/wasm-bindgen/wasm-bindgen" }
+        {
+          "name": "gfx-rs/wgpu",
+          "url": "https://github.com/gfx-rs/wgpu"
+        },
+        {
+          "name": "wasm-bindgen/wasm-bindgen — canvas bindings in web-sys",
+          "url": "https://github.com/wasm-bindgen/wasm-bindgen"
+        }
       ],
       "resources": [
         {
@@ -3510,30 +2092,7 @@ pub fn draw_bars(canvas: &HtmlCanvasElement, values: &[f64]) -> Result<(), JsVal
             "Client-side navigation does not reload the page, so focus stays on the link that was clicked and the new content is never announced. After a route change, move focus to the new heading. After a dialog opens, move focus inside it and restore it to the trigger on close. These are explicit DOM calls, not CSS.",
             "The same applies to dynamic content: a table that appears after loading needs focus or an announcement, and a form that submits without navigation needs its error message associated with the field. Frameworks give you the hooks; the decisions are yours."
           ],
-          "code": `use leptos::prelude::*;
-
-#[component]
-pub fn RouteShell(#[prop(into)] title: String, children: Children) -> impl IntoView {
-    // Effects run on the client, after the DOM is updated.
-    Effect::new(move |_| {
-        let Some(document) = web_sys::window().and_then(|w| w.document()) else {
-            return;
-        };
-        if let Some(heading) = document.get_element_by_id("route-heading") {
-            let _ = heading.set_attribute("tabindex", "-1");
-            if let Some(el) = heading.dyn_ref::<web_sys::HtmlElement>() {
-                let _ = el.focus();
-            }
-        }
-    });
-
-    view! {
-        <main>
-            <h1 id="route-heading" tabindex="-1">{title}</h1>
-            {children()}
-        </main>
-    }
-}`,
+          "code": "use leptos::prelude::*;\n\n#[component]\npub fn RouteShell(#[prop(into)] title: String, children: Children) -> impl IntoView {\n    // Effects run on the client, after the DOM is updated.\n    Effect::new(move |_| {\n        let Some(document) = web_sys::window().and_then(|w| w.document()) else {\n            return;\n        };\n        if let Some(heading) = document.get_element_by_id(\"route-heading\") {\n            let _ = heading.set_attribute(\"tabindex\", \"-1\");\n            if let Some(el) = heading.dyn_ref::<web_sys::HtmlElement>() {\n                let _ = el.focus();\n            }\n        }\n    });\n\n    view! {\n        <main>\n            <h1 id=\"route-heading\" tabindex=\"-1\">{title}</h1>\n            {children()}\n        </main>\n    }\n}",
           "tip": "tabindex=\"-1\" makes an element programmatically focusable without adding it to the tab order — exactly what a heading needs after navigation."
         },
         {
@@ -3542,27 +2101,7 @@ pub fn RouteShell(#[prop(into)] title: String, children: Children) -> impl IntoV
             "A live region announces content that changes after the initial render. aria-live=\"polite\" waits for a pause; assertive interrupts. For a streaming dashboard this is a hazard: putting aria-live on a table that updates every second makes a screen reader unusable, because every update queues an announcement.",
             "Announce a summary instead, and throttle it. Expose state as well: aria-busy while loading, aria-invalid plus aria-describedby for a failing field, aria-pressed for a toggle, aria-expanded for a disclosure. Those attributes are the difference between a component that looks right and one that is usable."
           ],
-          "code": `view! {
-    <section aria-labelledby="metrics-heading">
-        <h2 id="metrics-heading">"Live metrics"</h2>
-
-        // One summary line, updated at most once every few seconds.
-        <p role="status" aria-live="polite" aria-atomic="true">
-            {move || format!(
-                "{} req/s, p95 {} ms",
-                throttled_rps.get(),
-                throttled_p95.get()
-            )}
-        </p>
-
-        // The table itself is not a live region: it would flood the queue.
-        <table aria-busy=move || loading.get().to_string()>
-            <caption>"Per-route latency, last 5 minutes"</caption>
-            <thead><tr><th scope="col">"Route"</th><th scope="col">"p95"</th></tr></thead>
-            <tbody>{/* rows */}</tbody>
-        </table>
-    </section>
-}`,
+          "code": "view! {\n    <section aria-labelledby=\"metrics-heading\">\n        <h2 id=\"metrics-heading\">\"Live metrics\"</h2>\n\n        // One summary line, updated at most once every few seconds.\n        <p role=\"status\" aria-live=\"polite\" aria-atomic=\"true\">\n            {move || format!(\n                \"{} req/s, p95 {} ms\",\n                throttled_rps.get(),\n                throttled_p95.get()\n            )}\n        </p>\n\n        // The table itself is not a live region: it would flood the queue.\n        <table aria-busy=move || loading.get().to_string()>\n            <caption>\"Per-route latency, last 5 minutes\"</caption>\n            <thead><tr><th scope=\"col\">\"Route\"</th><th scope=\"col\">\"p95\"</th></tr></thead>\n            <tbody>{/* rows */}</tbody>\n        </table>\n    </section>\n}",
           "list": [
             "One polite live region per page, carrying a summary",
             "aria-atomic=true so the sentence is read whole, not in fragments",
@@ -3573,51 +2112,9 @@ pub fn RouteShell(#[prop(into)] title: String, children: Children) -> impl IntoV
       ],
       "exercise": {
         "prompt": "Make a search field accessible: a real label, an announced result count, and an error message tied to the input when the query is invalid. No divs standing in for controls.",
-        "starter": `view! {
-    <div class="search">
-        // 1. a <label> bound to the input
-        // 2. an <input> with aria-invalid and aria-describedby
-        // 3. a status line announcing the count
-    </div>
-}`,
+        "starter": "view! {\n    <div class=\"search\">\n        // 1. a <label> bound to the input\n        // 2. an <input> with aria-invalid and aria-describedby\n        // 3. a status line announcing the count\n    </div>\n}",
         "hint": "for=id on the label, id on the input, aria-describedby pointing at the error paragraph, and role=status for the count. Only set aria-invalid when the value is actually invalid.",
-        "solution": `use leptos::prelude::*;
-
-#[component]
-pub fn SearchField() -> impl IntoView {
-    let (query, set_query) = signal(String::new());
-    let results = Memo::new(move |_| {
-        let q = query.get();
-        if q.is_empty() { 0 } else { 4 } // placeholder count
-    });
-    let invalid = move || query.get().len() == 1;
-
-    view! {
-        <form class="search" role="search" on:submit=|ev| ev.prevent_default()>
-            <label for="incident-search">"Search incidents"</label>
-
-            <input
-                id="incident-search"
-                type="search"
-                autocomplete="off"
-                prop:value=move || query.get()
-                aria-invalid=move || invalid().to_string()
-                aria-describedby="search-error"
-                on:input=move |ev| set_query.set(event_target_value(&ev))
-            />
-
-            <p id="search-error" class="error" role="alert" hidden=move || !invalid()>
-                "Enter at least two characters."
-            </p>
-
-            <p role="status" aria-live="polite" aria-atomic="true">
-                {move || format!("{} incidents match", results.get())}
-            </p>
-
-            <button type="submit">"Search"</button>
-        </form>
-    }
-}`
+        "solution": "use leptos::prelude::*;\n\n#[component]\npub fn SearchField() -> impl IntoView {\n    let (query, set_query) = signal(String::new());\n    let results = Memo::new(move |_| {\n        let q = query.get();\n        if q.is_empty() { 0 } else { 4 } // placeholder count\n    });\n    let invalid = move || query.get().len() == 1;\n\n    view! {\n        <form class=\"search\" role=\"search\" on:submit=|ev| ev.prevent_default()>\n            <label for=\"incident-search\">\"Search incidents\"</label>\n\n            <input\n                id=\"incident-search\"\n                type=\"search\"\n                autocomplete=\"off\"\n                prop:value=move || query.get()\n                aria-invalid=move || invalid().to_string()\n                aria-describedby=\"search-error\"\n                on:input=move |ev| set_query.set(event_target_value(&ev))\n            />\n\n            <p id=\"search-error\" class=\"error\" role=\"alert\" hidden=move || !invalid()>\n                \"Enter at least two characters.\"\n            </p>\n\n            <p role=\"status\" aria-live=\"polite\" aria-atomic=\"true\">\n                {move || format!(\"{} incidents match\", results.get())}\n            </p>\n\n            <button type=\"submit\">\"Search\"</button>\n        </form>\n    }\n}"
       },
       "production": [
         "Every interactive element is a native control or has a complete keyboard implementation.",
@@ -3674,8 +2171,14 @@ pub fn SearchField() -> impl IntoView {
         "aria-invalid plus aria-describedby belongs on the field, not on the error text alone."
       ],
       "github": [
-        { "name": "dequelabs/axe-core", "url": "https://github.com/dequelabs/axe-core" },
-        { "name": "leptos-rs/leptos — aria attributes in view!", "url": "https://github.com/leptos-rs/leptos" }
+        {
+          "name": "dequelabs/axe-core",
+          "url": "https://github.com/dequelabs/axe-core"
+        },
+        {
+          "name": "leptos-rs/leptos — aria attributes in view!",
+          "url": "https://github.com/leptos-rs/leptos"
+        }
       ],
       "resources": [
         {
@@ -3709,23 +2212,7 @@ pub fn SearchField() -> impl IntoView {
             "A PWA is a normal site with two additions: a manifest describing the app (name, icons, display mode, theme) and a service worker that can answer requests when the network cannot. Neither makes the app faster by itself; installability is a browser decision based on those signals plus HTTPS.",
             "For a wasm app the worker matters more than usual, because the binary is the largest asset. Without a cache strategy every visit re-downloads it. Precache the shell — HTML, JS, wasm, CSS — at install time, then serve from cache and revalidate in the background."
           ],
-          "code": `{
-  "name": "Ops dashboard",
-  "short_name": "Ops",
-  "start_url": "/",
-  "scope": "/",
-  "display": "standalone",
-  "background_color": "#0b1220",
-  "theme_color": "#0b1220",
-  "icons": [
-    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
-  ]
-}
-
-<!-- index.html head -->
-<link rel="manifest" href="/manifest.webmanifest"/>
-<meta name="theme-color" content="#0b1220"/>`,
+          "code": "{\n  \"name\": \"Ops dashboard\",\n  \"short_name\": \"Ops\",\n  \"start_url\": \"/\",\n  \"scope\": \"/\",\n  \"display\": \"standalone\",\n  \"background_color\": \"#0b1220\",\n  \"theme_color\": \"#0b1220\",\n  \"icons\": [\n    { \"src\": \"/icons/icon-192.png\", \"sizes\": \"192x192\", \"type\": \"image/png\" },\n    { \"src\": \"/icons/icon-512.png\", \"sizes\": \"512x512\", \"type\": \"image/png\", \"purpose\": \"any maskable\" }\n  ]\n}\n\n<!-- index.html head -->\n<link rel=\"manifest\" href=\"/manifest.webmanifest\"/>\n<meta name=\"theme-color\" content=\"#0b1220\"/>",
           "tip": "purpose \"any maskable\" needs safe padding: maskable icons are cropped to the platform's shape, so keep the logo inside the middle 80%."
         },
         {
@@ -3734,32 +2221,7 @@ pub fn SearchField() -> impl IntoView {
             "Registration is one call into navigator.serviceWorker. The interesting part is the update flow: a new worker installs in the background and waits while the page keeps running the old one. Calling skipWaiting immediately lets the new worker take over mid-session, where it can serve a wasm binary that does not match the JS already loaded.",
             "The safe pattern is to detect the waiting worker, show a prompt, and reload only when the user accepts. That preserves the HTML/JS/wasm triple, which is exactly the invariant a wasm app needs and exactly what a naive cache-first worker breaks. Reloading without asking is tempting and costs whatever the user was typing; asking keeps the versions consistent for free."
           ],
-          "code": `use wasm_bindgen::prelude::*;
-use wasm_bindgen::JsCast;
-use wasm_bindgen_futures::JsFuture;
-use web_sys::ServiceWorkerRegistration;
-
-pub async fn register(path: &str) -> Result<ServiceWorkerRegistration, JsValue> {
-    let container = web_sys::window()
-        .ok_or("no window")?
-        .navigator()
-        .service_worker();
-
-    let registration = JsFuture::from(container.register(path)).await?;
-    Ok(registration.unchecked_into())
-}
-
-/// Call after every registration: a waiting worker means a new deploy.
-pub fn prompt_if_waiting(registration: &ServiceWorkerRegistration) -> bool {
-    match registration.waiting() {
-        Some(worker) => {
-            // Show a banner; on accept, tell the worker to take over and reload.
-            let _ = worker.post_message(&JsValue::from_str("SKIP_WAITING"));
-            true
-        }
-        None => false,
-    }
-}`,
+          "code": "use wasm_bindgen::prelude::*;\nuse wasm_bindgen::JsCast;\nuse wasm_bindgen_futures::JsFuture;\nuse web_sys::ServiceWorkerRegistration;\n\npub async fn register(path: &str) -> Result<ServiceWorkerRegistration, JsValue> {\n    let container = web_sys::window()\n        .ok_or(\"no window\")?\n        .navigator()\n        .service_worker();\n\n    let registration = JsFuture::from(container.register(path)).await?;\n    Ok(registration.unchecked_into())\n}\n\n/// Call after every registration: a waiting worker means a new deploy.\npub fn prompt_if_waiting(registration: &ServiceWorkerRegistration) -> bool {\n    match registration.waiting() {\n        Some(worker) => {\n            // Show a banner; on accept, tell the worker to take over and reload.\n            let _ = worker.post_message(&JsValue::from_str(\"SKIP_WAITING\"));\n            true\n        }\n        None => false,\n    }\n}",
           "list": [
             "register() resolves to a registration, not to an active worker",
             "A waiting worker means a new version is installed but not in control",
@@ -3773,33 +2235,7 @@ pub fn prompt_if_waiting(registration: &ServiceWorkerRegistration) -> bool {
             "Cache-first for hashed assets, network-first for HTML and API data, and never cache a response that is not ok. A wasm app adds one constraint: the JS glue and the wasm binary are a matched pair, so they must be versioned together — same cache name, deleted together on activate.",
             "Name the cache after the build, and delete every other cache during activation. That single rule prevents the classic failure where a stale worker serves last week's wasm with this week's glue. It also makes rollbacks safe, because the previous cache was deleted rather than quietly left behind."
           ],
-          "code": `const VERSION = "app-2026-11-04";
-const SHELL = ["/", "/pkg/app.js", "/pkg/app_bg.wasm", "/styles/app.css"];
-
-self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(VERSION).then((cache) => cache.addAll(SHELL)));
-});
-
-self.addEventListener("activate", (event) => {
-  event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((key) => key !== VERSION).map((key) => caches.delete(key))),
-    ),
-  );
-});
-
-self.addEventListener("fetch", (event) => {
-  const url = new URL(event.request.url);
-  const isHashed = url.pathname.startsWith("/pkg/");
-
-  if (isHashed) {
-    // Immutable assets: cache first, network as a fallback.
-    event.respondWith(
-      caches.match(event.request).then((hit) => hit || fetch(event.request)),
-    );
-  }
-  // HTML and API requests fall through to the network.
-});`,
+          "code": "const VERSION = \"app-2026-11-04\";\nconst SHELL = [\"/\", \"/pkg/app.js\", \"/pkg/app_bg.wasm\", \"/styles/app.css\"];\n\nself.addEventListener(\"install\", (event) => {\n  event.waitUntil(caches.open(VERSION).then((cache) => cache.addAll(SHELL)));\n});\n\nself.addEventListener(\"activate\", (event) => {\n  event.waitUntil(\n    caches.keys().then((keys) =>\n      Promise.all(keys.filter((key) => key !== VERSION).map((key) => caches.delete(key))),\n    ),\n  );\n});\n\nself.addEventListener(\"fetch\", (event) => {\n  const url = new URL(event.request.url);\n  const isHashed = url.pathname.startsWith(\"/pkg/\");\n\n  if (isHashed) {\n    // Immutable assets: cache first, network as a fallback.\n    event.respondWith(\n      caches.match(event.request).then((hit) => hit || fetch(event.request)),\n    );\n  }\n  // HTML and API requests fall through to the network.\n});",
           "list": [
             "One cache name per build; delete the others on activate",
             "Never cache a non-ok response",
@@ -3810,56 +2246,9 @@ self.addEventListener("fetch", (event) => {
       ],
       "exercise": {
         "prompt": "Write the install, activate and fetch handlers for a worker that precaches a wasm app shell and deletes old caches. Then explain what single change would cause the app to break for returning users.",
-        "starter": `const VERSION = "app-v1";
-const SHELL = [];
-
-self.addEventListener("install", (event) => {
-  // precache
-});
-
-self.addEventListener("activate", (event) => {
-  // delete stale caches
-});`,
+        "starter": "const VERSION = \"app-v1\";\nconst SHELL = [];\n\nself.addEventListener(\"install\", (event) => {\n  // precache\n});\n\nself.addEventListener(\"activate\", (event) => {\n  // delete stale caches\n});",
         "hint": "cache.addAll rejects the whole install if any URL 404s, which is why the shell list must be exact. Deleting caches other than VERSION on activate is what prevents stale wasm.",
-        "solution": `const VERSION = "app-v1";
-const SHELL = ["/", "/pkg/app.js", "/pkg/app_bg.wasm", "/styles/app.css"];
-
-self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches.open(VERSION).then((cache) => cache.addAll(SHELL)),
-  );
-});
-
-self.addEventListener("activate", (event) => {
-  event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(
-        keys.filter((key) => key !== VERSION).map((key) => caches.delete(key)),
-      ),
-    ),
-  );
-});
-
-self.addEventListener("fetch", (event) => {
-  const url = new URL(event.request.url);
-  if (!url.pathname.startsWith("/pkg/")) return; // HTML stays network-first
-
-  event.respondWith(
-    caches.match(event.request).then(async (hit) => {
-      if (hit) return hit;
-      const response = await fetch(event.request);
-      if (response.ok) {
-        const cache = await caches.open(VERSION);
-        cache.put(event.request, response.clone());
-      }
-      return response;
-    }),
-  );
-});
-
-// The breaking change: serving app.js from a cache that still holds the
-// previous app_bg.wasm. The glue calls a symbol the old binary does not
-// export, and only users who visited before the deploy see the failure.`
+        "solution": "const VERSION = \"app-v1\";\nconst SHELL = [\"/\", \"/pkg/app.js\", \"/pkg/app_bg.wasm\", \"/styles/app.css\"];\n\nself.addEventListener(\"install\", (event) => {\n  event.waitUntil(\n    caches.open(VERSION).then((cache) => cache.addAll(SHELL)),\n  );\n});\n\nself.addEventListener(\"activate\", (event) => {\n  event.waitUntil(\n    caches.keys().then((keys) =>\n      Promise.all(\n        keys.filter((key) => key !== VERSION).map((key) => caches.delete(key)),\n      ),\n    ),\n  );\n});\n\nself.addEventListener(\"fetch\", (event) => {\n  const url = new URL(event.request.url);\n  if (!url.pathname.startsWith(\"/pkg/\")) return; // HTML stays network-first\n\n  event.respondWith(\n    caches.match(event.request).then(async (hit) => {\n      if (hit) return hit;\n      const response = await fetch(event.request);\n      if (response.ok) {\n        const cache = await caches.open(VERSION);\n        cache.put(event.request, response.clone());\n      }\n      return response;\n    }),\n  );\n});\n\n// The breaking change: serving app.js from a cache that still holds the\n// previous app_bg.wasm. The glue calls a symbol the old binary does not\n// export, and only users who visited before the deploy see the failure."
       },
       "production": [
         "The manifest is served with the correct content type and referenced from every page.",
@@ -3917,8 +2306,14 @@ self.addEventListener("fetch", (event) => {
         "Precache the shell, leave HTML network-first."
       ],
       "github": [
-        { "name": "GoogleChrome/workbox", "url": "https://github.com/GoogleChrome/workbox" },
-        { "name": "wasm-bindgen/wasm-bindgen — service worker bindings in web-sys", "url": "https://github.com/wasm-bindgen/wasm-bindgen" }
+        {
+          "name": "GoogleChrome/workbox",
+          "url": "https://github.com/GoogleChrome/workbox"
+        },
+        {
+          "name": "wasm-bindgen/wasm-bindgen — service worker bindings in web-sys",
+          "url": "https://github.com/wasm-bindgen/wasm-bindgen"
+        }
       ],
       "resources": [
         {
@@ -3966,26 +2361,7 @@ self.addEventListener("fetch", (event) => {
             "The worker crate exposes an event macro that maps a fetch handler onto the platform's ABI, plus a Router with path parameters. Bindings such as KV namespaces arrive through Env, which is the edge equivalent of dependency injection. That is why the handler signature stays tiny and the platform's types stay out of your domain code.",
             "Keep handlers thin. Parse, call a binding, return a Response; anything more elaborate belongs in a library crate that you can test on the host without deploying. A handler that is unit-testable locally is worth more than one that is five lines shorter."
           ],
-          "code": `use worker::*;
-
-#[event(fetch)]
-pub async fn main(req: Request, env: Env, _ctx: worker::Context) -> Result<Response> {
-    let router = Router::new();
-
-    router
-        .get_async("/health", |_req, _ctx| async move { Response::ok("ok") })
-        .get_async("/metrics/:route", |_req, ctx| async move {
-            let route = ctx.param("route").cloned().unwrap_or_default();
-            let kv = ctx.kv("METRICS")?;
-
-            match kv.get(&route).text().await? {
-                Some(body) => Response::ok(body),
-                None => Response::error("not found", 404),
-            }
-        })
-        .run(req, env)
-        .await
-}`,
+          "code": "use worker::*;\n\n#[event(fetch)]\npub async fn main(req: Request, env: Env, _ctx: worker::Context) -> Result<Response> {\n    let router = Router::new();\n\n    router\n        .get_async(\"/health\", |_req, _ctx| async move { Response::ok(\"ok\") })\n        .get_async(\"/metrics/:route\", |_req, ctx| async move {\n            let route = ctx.param(\"route\").cloned().unwrap_or_default();\n            let kv = ctx.kv(\"METRICS\")?;\n\n            match kv.get(&route).text().await? {\n                Some(body) => Response::ok(body),\n                None => Response::error(\"not found\", 404),\n            }\n        })\n        .run(req, env)\n        .await\n}",
           "list": [
             "Env carries bindings; nothing global goes through a static",
             "Every handler returns Result, and errors become responses",
@@ -4009,50 +2385,9 @@ pub async fn main(req: Request, env: Env, _ctx: worker::Context) -> Result<Respo
       ],
       "exercise": {
         "prompt": "Write a workers-rs handler with a health route and a route that returns JSON from a KV binding. Explain which part you would move out of the worker if the JSON grew to a multi-megabyte aggregate.",
-        "starter": `use worker::*;
-
-#[event(fetch)]
-pub async fn main(req: Request, env: Env, _ctx: worker::Context) -> Result<Response> {
-    // 1. Router::new()
-    // 2. /health -> "ok"
-    // 3. /summary/:key -> KV read, JSON response
-    todo!()
-}`,
+        "starter": "use worker::*;\n\n#[event(fetch)]\npub async fn main(req: Request, env: Env, _ctx: worker::Context) -> Result<Response> {\n    // 1. Router::new()\n    // 2. /health -> \"ok\"\n    // 3. /summary/:key -> KV read, JSON response\n    todo!()\n}",
         "hint": "ctx.kv(\"METRICS\") gives a KvStore; .get(key).text().await? returns Option<String>. Response::from_json takes a serializable value.",
-        "solution": `use serde::Serialize;
-use worker::*;
-
-#[derive(Serialize)]
-struct Summary {
-    key: String,
-    rows: usize,
-}
-
-#[event(fetch)]
-pub async fn main(req: Request, env: Env, _ctx: worker::Context) -> Result<Response> {
-    let router = Router::new();
-
-    router
-        .get_async("/health", |_req, _ctx| async move { Response::ok("ok") })
-        .get_async("/summary/:key", |_req, ctx| async move {
-            let key = ctx.param("key").cloned().unwrap_or_default();
-            let kv = ctx.kv("METRICS")?;
-
-            let Some(raw) = kv.get(&key).text().await? else {
-                return Response::error("not found", 404);
-            };
-
-            let rows = raw.lines().count();
-            Response::from_json(&Summary { key, rows })
-        })
-        .run(req, env)
-        .await
-}
-
-// If the aggregate grew to megabytes, it would move out of the worker:
-// a scheduled job writes a precomputed summary to KV or R2, and the edge
-// handler only reads that object. Edge CPU is for per-request work, not
-// for scanning large datasets on every request.`
+        "solution": "use serde::Serialize;\nuse worker::*;\n\n#[derive(Serialize)]\nstruct Summary {\n    key: String,\n    rows: usize,\n}\n\n#[event(fetch)]\npub async fn main(req: Request, env: Env, _ctx: worker::Context) -> Result<Response> {\n    let router = Router::new();\n\n    router\n        .get_async(\"/health\", |_req, _ctx| async move { Response::ok(\"ok\") })\n        .get_async(\"/summary/:key\", |_req, ctx| async move {\n            let key = ctx.param(\"key\").cloned().unwrap_or_default();\n            let kv = ctx.kv(\"METRICS\")?;\n\n            let Some(raw) = kv.get(&key).text().await? else {\n                return Response::error(\"not found\", 404);\n            };\n\n            let rows = raw.lines().count();\n            Response::from_json(&Summary { key, rows })\n        })\n        .run(req, env)\n        .await\n}\n\n// If the aggregate grew to megabytes, it would move out of the worker:\n// a scheduled job writes a precomputed summary to KV or R2, and the edge\n// handler only reads that object. Edge CPU is for per-request work, not\n// for scanning large datasets on every request."
       },
       "production": [
         "Handler bundles are size-budgeted; a size regression is treated as a latency regression.",
@@ -4108,8 +2443,14 @@ pub async fn main(req: Request, env: Env, _ctx: worker::Context) -> Result<Respo
         "Measure p99 cold starts per region; local runs do not show them."
       ],
       "github": [
-        { "name": "cloudflare/workers-rs", "url": "https://github.com/cloudflare/workers-rs" },
-        { "name": "bytecodealliance/wasmtime — the engine behind several edge runtimes", "url": "https://github.com/bytecodealliance/wasmtime" }
+        {
+          "name": "cloudflare/workers-rs",
+          "url": "https://github.com/cloudflare/workers-rs"
+        },
+        {
+          "name": "bytecodealliance/wasmtime — the engine behind several edge runtimes",
+          "url": "https://github.com/bytecodealliance/wasmtime"
+        }
       ],
       "resources": [
         {
@@ -4143,29 +2484,7 @@ pub async fn main(req: Request, env: Env, _ctx: worker::Context) -> Result<Respo
             "Engine compiles and owns configuration; Module is a compiled artifact; Store holds an instance's state; Linker resolves imports. Instantiation is cheap once the module is compiled, so a server compiles once and creates a store per request. That is the architecture of nearly every wasm plugin host.",
             "Because wasm cannot name the host, all authority flows through imports. The linker is therefore the security boundary: whatever you do not link, the guest cannot do. Start from an empty linker and add exactly the interfaces a plugin needs, rather than linking a broad WASI context and hoping."
           ],
-          "code": `use wasmtime::{Engine, Linker, Module, Store};
-
-pub struct Plugin {
-    engine: Engine,
-    module: Module,
-}
-
-impl Plugin {
-    pub fn compile(wasm: &[u8]) -> anyhow::Result<Self> {
-        let engine = Engine::default();
-        let module = Module::new(&engine, wasm)?;
-        Ok(Self { engine, module })
-    }
-
-    pub fn call(&self, input: i32) -> anyhow::Result<i32> {
-        // No imports linked: this guest can only compute.
-        let linker: Linker<()> = Linker::new(&self.engine);
-        let mut store = Store::new(&self.engine, ());
-        let instance = linker.instantiate(&mut store, &self.module)?;
-        let process = instance.get_typed_func::<i32, i32>(&mut store, "process")?;
-        process.call(&mut store, input)
-    }
-}`,
+          "code": "use wasmtime::{Engine, Linker, Module, Store};\n\npub struct Plugin {\n    engine: Engine,\n    module: Module,\n}\n\nimpl Plugin {\n    pub fn compile(wasm: &[u8]) -> anyhow::Result<Self> {\n        let engine = Engine::default();\n        let module = Module::new(&engine, wasm)?;\n        Ok(Self { engine, module })\n    }\n\n    pub fn call(&self, input: i32) -> anyhow::Result<i32> {\n        // No imports linked: this guest can only compute.\n        let linker: Linker<()> = Linker::new(&self.engine);\n        let mut store = Store::new(&self.engine, ());\n        let instance = linker.instantiate(&mut store, &self.module)?;\n        let process = instance.get_typed_func::<i32, i32>(&mut store, \"process\")?;\n        process.call(&mut store, input)\n    }\n}",
           "tip": "Instantiate per call, compile once. Module is Send + Sync and safe to share; Store owns mutable state and is meant to be short-lived."
         },
         {
@@ -4174,46 +2493,7 @@ impl Plugin {
             "An untrusted module containing loop {} will consume a core until something stops it. Wasmtime offers two mechanisms: fuel, a deterministic instruction budget metered by the engine, and epoch interruption, a cheap counter checked at loop backedges so a watchdog thread can preempt execution.",
             "Fuel is deterministic and therefore testable — the same input consumes the same budget. Epochs are cheaper and wall-clock based. Either way, the limit is not a default you can skip: without one, a hostile or simply buggy guest runs until the request times out, if it ever does."
           ],
-          "code": `use std::sync::Arc;
-use std::time::Duration;
-use wasmtime::{Config, Engine, Linker, Module, Store, StoreLimits, StoreLimitsBuilder};
-
-pub fn hardened_engine() -> anyhow::Result<Engine> {
-    let mut config = Config::new();
-    config.consume_fuel(true);          // deterministic instruction budget
-    config.epoch_interruption(true);    // wall-clock preemption
-    Engine::new(&config).map_err(Into::into)
-}
-
-struct HostState {
-    limits: StoreLimits,
-}
-
-pub fn run(engine: &Engine, module: &Module, fuel: u64) -> anyhow::Result<i32> {
-    let limits = StoreLimitsBuilder::new()
-        .memory_size(64 << 20)          // 64 MiB of linear memory
-        .instances(1)
-        .build();
-
-    let mut store = Store::new(engine, HostState { limits });
-    store.set_fuel(fuel)?;
-    store.epoch_deadline_trap();
-    // The limits must live in the store's data; a temporary would not outlive this call.
-    store.limiter(|state| &mut state.limits);
-
-    let linker: Linker<HostState> = Linker::new(engine);
-    let instance = linker.instantiate(&mut store, module)?;
-    let f = instance.get_typed_func::<i32, i32>(&mut store, "process")?;
-    f.call(&mut store, 42)
-}
-
-pub fn watchdog(engine: Arc<Engine>) {
-    // Bump the epoch periodically; guests with a deadline trap when it passes.
-    std::thread::spawn(move || loop {
-        std::thread::sleep(Duration::from_millis(50));
-        engine.increment_epoch();
-    });
-}`,
+          "code": "use std::sync::Arc;\nuse std::time::Duration;\nuse wasmtime::{Config, Engine, Linker, Module, Store, StoreLimits, StoreLimitsBuilder};\n\npub fn hardened_engine() -> anyhow::Result<Engine> {\n    let mut config = Config::new();\n    config.consume_fuel(true);          // deterministic instruction budget\n    config.epoch_interruption(true);    // wall-clock preemption\n    Engine::new(&config).map_err(Into::into)\n}\n\nstruct HostState {\n    limits: StoreLimits,\n}\n\npub fn run(engine: &Engine, module: &Module, fuel: u64) -> anyhow::Result<i32> {\n    let limits = StoreLimitsBuilder::new()\n        .memory_size(64 << 20)          // 64 MiB of linear memory\n        .instances(1)\n        .build();\n\n    let mut store = Store::new(engine, HostState { limits });\n    store.set_fuel(fuel)?;\n    store.epoch_deadline_trap();\n    // The limits must live in the store's data; a temporary would not outlive this call.\n    store.limiter(|state| &mut state.limits);\n\n    let linker: Linker<HostState> = Linker::new(engine);\n    let instance = linker.instantiate(&mut store, module)?;\n    let f = instance.get_typed_func::<i32, i32>(&mut store, \"process\")?;\n    f.call(&mut store, 42)\n}\n\npub fn watchdog(engine: Arc<Engine>) {\n    // Bump the epoch periodically; guests with a deadline trap when it passes.\n    std::thread::spawn(move || loop {\n        std::thread::sleep(Duration::from_millis(50));\n        engine.increment_epoch();\n    });\n}",
           "list": [
             "Fuel: deterministic, good for tests and per-request budgets",
             "Epochs: cheap, wall-clock, good for hard deadlines",
@@ -4227,57 +2507,15 @@ pub fn watchdog(engine: Arc<Engine>) {
             "Compiling on every boot spends milliseconds you may not have. wasmtime compile produces a precompiled artifact, and Module::deserialize loads it without Cranelift. The trade-off is that the artifact is tied to the engine version and target, so it is a build artifact, not a portable library.",
             "Memory also needs a ceiling. A guest that allocates in a loop should get an error from the limiter, not trigger the host's OOM killer. Pair limits with a pooling allocator when you instantiate thousands of short-lived instances, so allocation cost stops dominating."
           ],
-          "code": `# AOT compile at build time, ship the .cwasm artifact.
-wasmtime compile guest.wasm -o guest.cwasm
-
-# Cross-compile for the architecture your fleet actually runs.
-wasmtime compile --target aarch64-unknown-linux-gnu guest.wasm -o guest-arm64.cwasm
-
-# Inspect what the module imports before you link anything.
-wasmtime inspect guest.wasm
-
-# Run with a WASI context (preview 2) instead of an empty linker.
-wasmtime run --dir ./data guest.wasm
-
-# The engine refuses an artifact built by a different wasmtime version;
-# rebuild it in the same pipeline that builds the runtime image.`,
+          "code": "# AOT compile at build time, ship the .cwasm artifact.\nwasmtime compile guest.wasm -o guest.cwasm\n\n# Cross-compile for the architecture your fleet actually runs.\nwasmtime compile --target aarch64-unknown-linux-gnu guest.wasm -o guest-arm64.cwasm\n\n# Inspect what the module imports before you link anything.\nwasmtime inspect guest.wasm\n\n# Run with a WASI context (preview 2) instead of an empty linker.\nwasmtime run --dir ./data guest.wasm\n\n# The engine refuses an artifact built by a different wasmtime version;\n# rebuild it in the same pipeline that builds the runtime image.",
           "tip": "wasmtime inspect lists imports before execution; an unexpected wasi:sockets import is a finding, not a detail."
         }
       ],
       "exercise": {
         "prompt": "Write a runner that enforces a fuel budget and refuses to link any import. Then explain how you would add a single host function that appends a line to a log, without opening any other capability.",
-        "starter": `use wasmtime::{Engine, Linker, Module, Store};
-
-pub fn run(engine: &Engine, module: &Module, fuel: u64) -> anyhow::Result<i32> {
-    // 1. store with fuel
-    // 2. empty linker
-    // 3. typed call to "process"
-    todo!()
-}`,
+        "starter": "use wasmtime::{Engine, Linker, Module, Store};\n\npub fn run(engine: &Engine, module: &Module, fuel: u64) -> anyhow::Result<i32> {\n    // 1. store with fuel\n    // 2. empty linker\n    // 3. typed call to \"process\"\n    todo!()\n}",
         "hint": "store.set_fuel(fuel)? before instantiation; Linker::new(&engine) with no additions links nothing, so any import in the module fails instantiation with an unknown-import error.",
-        "solution": `use wasmtime::{Caller, Engine, Linker, Module, Store};
-
-pub struct LogOnly;
-
-pub fn run(engine: &Engine, module: &Module, fuel: u64) -> anyhow::Result<i32> {
-    let mut store: Store<()> = Store::new(engine, ());
-    store.set_fuel(fuel)?;
-
-    let mut linker: Linker<()> = Linker::new(engine);
-
-    // Exactly one capability: append a line to stdout.
-    linker.func_wrap("host", "log", |_caller: Caller<'_, ()>, ptr: i32, len: i32| {
-        println!("guest log: ptr={ptr} len={len}");
-    })?;
-
-    let instance = linker.instantiate(&mut store, module)?;
-    let process = instance.get_typed_func::<i32, i32>(&mut store, "process")?;
-    process.call(&mut store, 42)
-}
-
-// Anything the module imports that is not "host"."log" now fails at
-// instantiation with an unknown-import error, which is the intended
-// failure mode: deny by default, allow explicitly.`
+        "solution": "use wasmtime::{Caller, Engine, Linker, Module, Store};\n\npub struct LogOnly;\n\npub fn run(engine: &Engine, module: &Module, fuel: u64) -> anyhow::Result<i32> {\n    let mut store: Store<()> = Store::new(engine, ());\n    store.set_fuel(fuel)?;\n\n    let mut linker: Linker<()> = Linker::new(engine);\n\n    // Exactly one capability: append a line to stdout.\n    linker.func_wrap(\"host\", \"log\", |_caller: Caller<'_, ()>, ptr: i32, len: i32| {\n        println!(\"guest log: ptr={ptr} len={len}\");\n    })?;\n\n    let instance = linker.instantiate(&mut store, module)?;\n    let process = instance.get_typed_func::<i32, i32>(&mut store, \"process\")?;\n    process.call(&mut store, 42)\n}\n\n// Anything the module imports that is not \"host\".\"log\" now fails at\n// instantiation with an unknown-import error, which is the intended\n// failure mode: deny by default, allow explicitly."
       },
       "production": [
         "Every guest runs with an explicit fuel or epoch deadline; no unbounded execution path exists.",
@@ -4334,8 +2572,14 @@ pub fn run(engine: &Engine, module: &Module, fuel: u64) -> anyhow::Result<i32> {
         "wasmtime inspect lists imports before you run anything."
       ],
       "github": [
-        { "name": "bytecodealliance/wasmtime", "url": "https://github.com/bytecodealliance/wasmtime" },
-        { "name": "bytecodealliance/wasm-tools", "url": "https://github.com/bytecodealliance/wasm-tools" }
+        {
+          "name": "bytecodealliance/wasmtime",
+          "url": "https://github.com/bytecodealliance/wasmtime"
+        },
+        {
+          "name": "bytecodealliance/wasm-tools",
+          "url": "https://github.com/bytecodealliance/wasm-tools"
+        }
       ],
       "resources": [
         {
@@ -4379,29 +2623,7 @@ pub fn run(engine: &Engine, module: &Module, fuel: u64) -> anyhow::Result<i32> {
             "The component model moves the contract out of generated glue and into WIT: interfaces, records, variants, lists, options and resources. A world lists what a component imports and exports. Two components that speak the same world can be written in different languages and composed without either knowing the other's ABI.",
             "That is the difference from core wasm, where a module exports a function taking i32 and everyone agrees by convention that it is a pointer to a length-prefixed UTF-8 string. The canonical ABI defines those conventions once — string encoding, list layout, ownership, resource handles — so the agreement is checked rather than assumed. The old arrangement works until one side changes a layout, and then it fails with corrupted data instead of a type error."
           ],
-          "code": `// wit/dashboard.wit
-package acme:dashboard@0.1.0;
-
-interface metrics {
-  record sample {
-    name: string,
-    p95-ms: f64,
-    healthy: bool,
-  }
-
-  enum error {
-    not-found,
-    unavailable,
-  }
-
-  get-samples: func(limit: u32) -> list<sample>;
-  record: func(name: string, latency-ms: f64) -> result<_, error>;
-}
-
-world dashboard {
-  import log: func(message: string);
-  export metrics;
-}`,
+          "code": "// wit/dashboard.wit\npackage acme:dashboard@0.1.0;\n\ninterface metrics {\n  record sample {\n    name: string,\n    p95-ms: f64,\n    healthy: bool,\n  }\n\n  enum error {\n    not-found,\n    unavailable,\n  }\n\n  get-samples: func(limit: u32) -> list<sample>;\n  record: func(name: string, latency-ms: f64) -> result<_, error>;\n}\n\nworld dashboard {\n  import log: func(message: string);\n  export metrics;\n}",
           "tip": "WIT uses kebab-case names; bindings map them to snake_case in Rust and camelCase in JavaScript, so the wire format stays language-neutral."
         },
         {
@@ -4410,20 +2632,7 @@ world dashboard {
             "cargo component wraps the usual build and emits a component rather than a core module. For a core module produced by plain rustc, wasm-tools component new wraps it with an adapter that maps preview1 imports onto the component model, which is how existing crates keep working.",
             "Inspect before you integrate. wasm-tools component wit prints the world a component declares, and that output is the fastest way to catch a dependency that quietly widened your interface. Imports you did not plan for mean the contract grew without a review."
           ],
-          "code": `# Build a component directly from a Rust crate that has a wit/ folder.
-cargo component build --release
-# -> target/wasm32-wasip1/release/dashboard.wasm
-
-# Or adapt a core module built by rustc.
-wasm-tools component new core.wasm \\
-  --adapt wasi_snapshot_preview1=adapter/wasi_snapshot_preview1.wasm \\
-  -o dashboard.wasm
-
-# Verify the world the component actually implements.
-wasm-tools component wit dashboard.wasm
-
-# Run it on wasmtime; the component-model feature is on by default.
-wasmtime run dashboard.wasm`,
+          "code": "# Build a component directly from a Rust crate that has a wit/ folder.\ncargo component build --release\n# -> target/wasm32-wasip1/release/dashboard.wasm\n\n# Or adapt a core module built by rustc.\nwasm-tools component new core.wasm \\\n  --adapt wasi_snapshot_preview1=adapter/wasi_snapshot_preview1.wasm \\\n  -o dashboard.wasm\n\n# Verify the world the component actually implements.\nwasm-tools component wit dashboard.wasm\n\n# Run it on wasmtime; the component-model feature is on by default.\nwasmtime run dashboard.wasm",
           "list": [
             "cargo component for new crates; wasm-tools for existing core modules",
             "The adapter is what keeps preview1 dependencies usable",
@@ -4437,73 +2646,15 @@ wasmtime run dashboard.wasm`,
             "On the host, wasmtime::component::bindgen! reads the same WIT and generates typed traits, so imports are ordinary Rust methods and exports are typed calls. include_component_type embeds the world's type in the binary, which lets you type-check a component against the expected world without shipping the WIT files.",
             "Composition is where the model pays off: a linker can wire one component's imports to another's exports, so a plugin can consume a logging or HTTP component chosen at deploy time. The security boundary is unchanged — a component can use only what its world imports and the host provides."
           ],
-          "code": `use wasmtime::component::{Component, Linker};
-use wasmtime::{Engine, Store};
-
-wasmtime::component::bindgen!({
-    world: "dashboard",
-    path: "wit",
-    include_component_type: true,
-});
-
-fn main() -> anyhow::Result<()> {
-    let engine = Engine::default();
-    let component = Component::from_file(&engine, "dashboard.wasm")?;
-
-    let mut linker: Linker<()> = Linker::new(&engine);
-    linker.root().func_wrap("log", |_store, (msg,): (String,)| {
-        println!("guest: {msg}");
-    })?;
-
-    let mut store = Store::new(&engine, ());
-    let instance = linker.instantiate(&mut store, &component)?;
-
-    // Typed calls are generated from the world; no pointer arithmetic.
-    let _ = &instance;
-    Ok(())
-}`,
+          "code": "use wasmtime::component::{Component, Linker};\nuse wasmtime::{Engine, Store};\n\nwasmtime::component::bindgen!({\n    world: \"dashboard\",\n    path: \"wit\",\n    include_component_type: true,\n});\n\nfn main() -> anyhow::Result<()> {\n    let engine = Engine::default();\n    let component = Component::from_file(&engine, \"dashboard.wasm\")?;\n\n    let mut linker: Linker<()> = Linker::new(&engine);\n    linker.root().func_wrap(\"log\", |_store, (msg,): (String,)| {\n        println!(\"guest: {msg}\");\n    })?;\n\n    let mut store = Store::new(&engine, ());\n    let instance = linker.instantiate(&mut store, &component)?;\n\n    // Typed calls are generated from the world; no pointer arithmetic.\n    let _ = &instance;\n    Ok(())\n}",
           "tip": "If bindgen! reports a missing world, pass path explicitly — the macro looks for wi/ adjacent to Cargo.toml and requires exactly one world unless you name it."
         }
       ],
       "exercise": {
         "prompt": "Write a WIT world for a plugin that imports a logger and exports a transform function over a list of records. Then show the commands that build it and inspect the resulting world.",
-        "starter": `// wit/plugin.wit
-package acme:plugin@0.1.0;
-
-interface transform {
-  // record input { ... }
-  // run: func(rows: list<input>) -> list<input>;
-}
-
-world plugin {
-  // import log
-  // export transform
-}`,
+        "starter": "// wit/plugin.wit\npackage acme:plugin@0.1.0;\n\ninterface transform {\n  // record input { ... }\n  // run: func(rows: list<input>) -> list<input>;\n}\n\nworld plugin {\n  // import log\n  // export transform\n}",
         "hint": "Records need named fields with WIT types; the world block lists `import log: func(message: string);` and `export transform;`. Build with cargo component, inspect with wasm-tools component wit.",
-        "solution": `// wit/plugin.wit
-package acme:plugin@0.1.0;
-
-interface transform {
-  record input {
-    key: string,
-    value: f64,
-  }
-
-  run: func(rows: list<input>) -> list<input>;
-}
-
-world plugin {
-  import log: func(message: string);
-  export transform;
-}
-
-# Build and inspect
-cargo component build --release
-wasm-tools component wit target/wasm32-wasip1/release/plugin.wasm
-
-# Expected output: the same package, world plugin, with one import
-# (log) and one export (transform). Any extra import is a contract
-# change you did not intend.`
+        "solution": "// wit/plugin.wit\npackage acme:plugin@0.1.0;\n\ninterface transform {\n  record input {\n    key: string,\n    value: f64,\n  }\n\n  run: func(rows: list<input>) -> list<input>;\n}\n\nworld plugin {\n  import log: func(message: string);\n  export transform;\n}\n\n# Build and inspect\ncargo component build --release\nwasm-tools component wit target/wasm32-wasip1/release/plugin.wasm\n\n# Expected output: the same package, world plugin, with one import\n# (log) and one export (transform). Any extra import is a contract\n# change you did not intend."
       },
       "production": [
         "Every component's world is versioned in its package name, and breaking changes get a new version.",
@@ -4561,8 +2712,14 @@ wasm-tools component wit target/wasm32-wasip1/release/plugin.wasm
         "bindgen! with include_component_type lets you type-check against a world without shipping WIT."
       ],
       "github": [
-        { "name": "WebAssembly/component-model", "url": "https://github.com/WebAssembly/component-model" },
-        { "name": "bytecodealliance/cargo-component", "url": "https://github.com/bytecodealliance/cargo-component" }
+        {
+          "name": "WebAssembly/component-model",
+          "url": "https://github.com/WebAssembly/component-model"
+        },
+        {
+          "name": "bytecodealliance/cargo-component",
+          "url": "https://github.com/bytecodealliance/cargo-component"
+        }
       ],
       "resources": [
         {

@@ -2,3 +2,4 @@ node_modules/
 .DS_Store
 *.log
 .snippet-cache.json
+.content-audit-cache.json

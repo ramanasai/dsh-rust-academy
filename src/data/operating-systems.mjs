@@ -1,12 +1,8 @@
 /**
  * Operating systems track.
  *
- * Kernel interfaces described here are Linux-specific and were checked against
- * kernel documentation (7.4.0-rc1 tree) and man-pages 6.19. Crate versions used
- * across lessons: nix 0.31.x, rustix 1.1.x, libc 0.2.x, io-uring 0.7.x,
- * aya 0.16.x, caps 0.5.x, tokio 1.x.
- *
- * Data is JSON-compatible and consumed by the plugin build.
+ * Authored for the Rust Academy plugin. Every lesson is plain JSON-compatible
+ * data consumed by src/app.js through build.mjs.
  */
 export default {
   "key": "operating-systems",
@@ -23,7 +19,12 @@ export default {
       "Signal and exit-code propagation: SIGTERM forwarding, orphan reaping, and exact 128+signal exit status on the host",
       "An isolation and limit benchmark report: syscall overhead, memory ceiling behaviour, fork-bomb containment, and the known escape surfaces"
     ],
-    "stack": ["nix", "libc", "caps", "tokio"]
+    "stack": [
+      "nix",
+      "libc",
+      "caps",
+      "tokio"
+    ]
   },
   "lessons": [
     {
@@ -83,7 +84,11 @@ export default {
         "Watch /proc/PID/status Threads and /proc/PID/task in tests to catch runtime thread leaks.",
         "For memory ceilings, measure RSS after the first write, not VmSize at fork: COW defers the charge."
       ],
-      "crates": ["nix", "libc", "rustix"],
+      "crates": [
+        "nix",
+        "libc",
+        "rustix"
+      ],
       "pitfall": "Forking a multithreaded process and calling malloc in the child: another thread may have held the allocator lock at fork time, so the child deadlocks before it can exec.",
       "questions": [
         {
@@ -127,8 +132,14 @@ export default {
         "The file offset is shared after fork; the address space is not."
       ],
       "github": [
-        { "name": "nix - fork, clone and waitpid bindings", "url": "https://github.com/nix-rust/nix" },
-        { "name": "tokio - userspace task scheduling on top of threads", "url": "https://github.com/tokio-rs/tokio" }
+        {
+          "name": "nix - fork, clone and waitpid bindings",
+          "url": "https://github.com/nix-rust/nix"
+        },
+        {
+          "name": "tokio - userspace task scheduling on top of threads",
+          "url": "https://github.com/tokio-rs/tokio"
+        }
       ],
       "resources": [
         {
@@ -211,7 +222,11 @@ export default {
         "Derive affinity masks from topology files instead of hard-coding CPU numbers.",
         "Treat involuntary context switches as evidence of oversubscription, not of application slowness."
       ],
-      "crates": ["libc", "nix", "tokio"],
+      "crates": [
+        "libc",
+        "nix",
+        "tokio"
+      ],
       "pitfall": "Using nice to prioritize a service inside a cgroup: nice orders threads within a scheduling group, while the group's cpu.weight decides how much CPU the whole service gets.",
       "questions": [
         {
@@ -255,8 +270,14 @@ export default {
         "Build affinity masks from /sys/devices/system/cpu/*/topology, not from constants."
       ],
       "github": [
-        { "name": "Linux kernel scheduler sources", "url": "https://github.com/torvalds/linux" },
-        { "name": "tokio - cooperative scheduling and runtime worker control", "url": "https://github.com/tokio-rs/tokio" }
+        {
+          "name": "Linux kernel scheduler sources",
+          "url": "https://github.com/torvalds/linux"
+        },
+        {
+          "name": "tokio - cooperative scheduling and runtime worker control",
+          "url": "https://github.com/tokio-rs/tokio"
+        }
       ],
       "resources": [
         {
@@ -338,7 +359,11 @@ export default {
         "Pre-touch latency-critical buffers at startup, and document the memory cost of doing so.",
         "Set memory.max per workload so overcommit failures are scoped to a cgroup instead of the host OOM killer."
       ],
-      "crates": ["libc", "rustix", "nix"],
+      "crates": [
+        "libc",
+        "rustix",
+        "nix"
+      ],
       "pitfall": "Treating VmSize as memory usage: an mmap of 100 GiB is address space, not pages, and a service can pass every size check while its RSS is a rounding error - until the first touch of each page.",
       "questions": [
         {
@@ -382,8 +407,14 @@ export default {
         "MAP_POPULATE moves fault cost to mmap time; it does not remove it."
       ],
       "github": [
-        { "name": "Linux kernel memory management sources", "url": "https://github.com/torvalds/linux" },
-        { "name": "rustix - mm module with safe mmap/mprotect wrappers", "url": "https://github.com/bytecodealliance/rustix" }
+        {
+          "name": "Linux kernel memory management sources",
+          "url": "https://github.com/torvalds/linux"
+        },
+        {
+          "name": "rustix - mm module with safe mmap/mprotect wrappers",
+          "url": "https://github.com/bytecodealliance/rustix"
+        }
       ],
       "resources": [
         {
@@ -466,12 +497,21 @@ export default {
         "Never call last_os_error() after a successful operation; capture errno at the failure site.",
         "Prefer vDSO-served clocks in hot paths and avoid re-reading /proc for time or CPU identity."
       ],
-      "crates": ["libc", "rustix", "nix"],
+      "crates": [
+        "libc",
+        "rustix",
+        "nix"
+      ],
       "pitfall": "Checking errno instead of the return value: a successful syscall may leave errno untouched from a previous failure, so the check reports an error that never happened.",
       "questions": [
         {
           "q": "Which register holds the fourth syscall argument on x86-64 Linux?",
-          "options": ["rcx", "r10", "r8", "r9"],
+          "options": [
+            "rcx",
+            "r10",
+            "r8",
+            "r9"
+          ],
           "answer": 1,
           "explain": "The order is rdi, rsi, rdx, r10, r8, r9. rcx is clobbered because the syscall instruction stores the return address there."
         },
@@ -505,8 +545,14 @@ export default {
         "std::time::Instant is already on the vDSO path; do not wrap it in a syscall."
       ],
       "github": [
-        { "name": "libc - raw syscall constants and bindings", "url": "https://github.com/rust-lang/libc" },
-        { "name": "rustix - memory-safe syscall wrappers", "url": "https://github.com/bytecodealliance/rustix" }
+        {
+          "name": "libc - raw syscall constants and bindings",
+          "url": "https://github.com/rust-lang/libc"
+        },
+        {
+          "name": "rustix - memory-safe syscall wrappers",
+          "url": "https://github.com/bytecodealliance/rustix"
+        }
       ],
       "resources": [
         {
@@ -588,12 +634,21 @@ export default {
         "Keep signal handlers to atomics, raw fd writes and _exit; never allocate or unwind.",
         "Watch ksoftirqd and per-vector /proc/interrupts deltas when throughput collapses under load."
       ],
-      "crates": ["libc", "nix", "signal-hook"],
+      "crates": [
+        "libc",
+        "nix",
+        "signal-hook"
+      ],
       "pitfall": "A SIGSEGV handler installed without SA_ONSTACK on the overflowing stack: the kernel tries to deliver the signal, cannot push a frame, and the process dies with no handler output at all.",
       "questions": [
         {
           "q": "A store faults because the page is mapped read-only. Which si_code do you expect?",
-          "options": ["SEGV_MAPERR", "SEGV_ACCERR", "BUS_ADRERR", "SI_KERNEL"],
+          "options": [
+            "SEGV_MAPERR",
+            "SEGV_ACCERR",
+            "BUS_ADRERR",
+            "SI_KERNEL"
+          ],
           "answer": 1,
           "explain": "ACCERR means a mapping covers the address but the access violates its permissions. MAPERR means nothing is mapped there at all."
         },
@@ -627,8 +682,14 @@ export default {
         "SIGSEGV from a stack overflow needs sigaltstack to be observable at all."
       ],
       "github": [
-        { "name": "Linux kernel interrupt and entry code", "url": "https://github.com/torvalds/linux" },
-        { "name": "signal-hook - safe signal handling for Rust", "url": "https://github.com/vorner/signal-hook" }
+        {
+          "name": "Linux kernel interrupt and entry code",
+          "url": "https://github.com/torvalds/linux"
+        },
+        {
+          "name": "signal-hook - safe signal handling for Rust",
+          "url": "https://github.com/vorner/signal-hook"
+        }
       ],
       "resources": [
         {
@@ -710,7 +771,11 @@ export default {
         "Mount container root filesystems with nosuid, nodev and noexec, and keep the writable layer off the image.",
         "Pin the expected filesystem type and mount options in deployment checks; overlayfs and network filesystems change the durability rules."
       ],
-      "crates": ["rustix", "nix", "libc"],
+      "crates": [
+        "rustix",
+        "nix",
+        "libc"
+      ],
       "pitfall": "fsync on the file but not its directory: after a crash the data may be durable while the name is missing, producing an empty directory that looks like an application bug.",
       "questions": [
         {
@@ -754,8 +819,14 @@ export default {
         "overlayfs copy-up copies the whole file on first write, not the changed block."
       ],
       "github": [
-        { "name": "Linux kernel VFS sources", "url": "https://github.com/torvalds/linux" },
-        { "name": "rustix - filesystem syscall wrappers", "url": "https://github.com/bytecodealliance/rustix" }
+        {
+          "name": "Linux kernel VFS sources",
+          "url": "https://github.com/torvalds/linux"
+        },
+        {
+          "name": "rustix - filesystem syscall wrappers",
+          "url": "https://github.com/bytecodealliance/rustix"
+        }
       ],
       "resources": [
         {
@@ -837,7 +908,11 @@ export default {
         "Alert on rising writeback and Dirty bytes, not only on device latency, to catch flusher-induced stalls.",
         "Never size storage performance from %util on NVMe; benchmark at the queue depth the application actually uses."
       ],
-      "crates": ["libc", "rustix", "nix"],
+      "crates": [
+        "libc",
+        "rustix",
+        "nix"
+      ],
       "pitfall": "Setting the IO scheduler by echoing to sysfs on a running host: the change applies to that device only, is lost on reboot, and silently differs across nodes unless it is pinned in udev or the boot image.",
       "questions": [
         {
@@ -881,8 +956,14 @@ export default {
         "Dirty pages stall later: watch /proc/meminfo Dirty and Writeback."
       ],
       "github": [
-        { "name": "Linux kernel block layer sources", "url": "https://github.com/torvalds/linux" },
-        { "name": "fio - flexible IO tester used to benchmark block devices", "url": "https://github.com/axboe/fio" }
+        {
+          "name": "Linux kernel block layer sources",
+          "url": "https://github.com/torvalds/linux"
+        },
+        {
+          "name": "fio - flexible IO tester used to benchmark block devices",
+          "url": "https://github.com/axboe/fio"
+        }
       ],
       "resources": [
         {
@@ -964,7 +1045,11 @@ export default {
         "Do not mmap files that may be truncated unless SIGBUS is handled and the handler can fail the work.",
         "Check minor/major fault counts when replacing read(2) with mmap; a copy saved is not automatically a win."
       ],
-      "crates": ["libc", "memmap2", "rustix"],
+      "crates": [
+        "libc",
+        "memmap2",
+        "rustix"
+      ],
       "pitfall": "Truncating a file while another process has it mapped: the next access past the new end of file raises SIGBUS, and there is no errno to retry, so the process dies at a load instruction.",
       "questions": [
         {
@@ -1008,8 +1093,14 @@ export default {
         "SIGBUS with BUS_ADRERR on a mapping usually means the file shrank underneath you."
       ],
       "github": [
-        { "name": "memmap2 - safe mmap wrappers for Rust", "url": "https://github.com/RazrFalcon/memmap2-rs" },
-        { "name": "Linux kernel page cache and writeback", "url": "https://github.com/torvalds/linux" }
+        {
+          "name": "memmap2 - safe mmap wrappers for Rust",
+          "url": "https://github.com/RazrFalcon/memmap2-rs"
+        },
+        {
+          "name": "Linux kernel page cache and writeback",
+          "url": "https://github.com/torvalds/linux"
+        }
       ],
       "resources": [
         {
@@ -1092,7 +1183,11 @@ export default {
         "Use PI mutexes only where an unbounded inversion is worse than the extra bookkeeping, and keep the critical section short anyway.",
         "Check futex syscall counts before and after lock changes to prove the fast path survived."
       ],
-      "crates": ["libc", "parking_lot", "crossbeam"],
+      "crates": [
+        "libc",
+        "parking_lot",
+        "crossbeam"
+      ],
       "pitfall": "A spinlock held across a page fault: the fault handler may need the same lock or sleep, the CPU spins with preemption disabled, and the machine reports a soft lockup instead of a clean deadlock.",
       "questions": [
         {
@@ -1136,8 +1231,14 @@ export default {
         "Priority inheritance raises the holder; it does not shorten the critical section."
       ],
       "github": [
-        { "name": "parking_lot - futex-based userspace synchronisation", "url": "https://github.com/Amanieu/parking_lot" },
-        { "name": "crossbeam - lock-free structures and channel primitives", "url": "https://github.com/crossbeam-rs/crossbeam" }
+        {
+          "name": "parking_lot - futex-based userspace synchronisation",
+          "url": "https://github.com/Amanieu/parking_lot"
+        },
+        {
+          "name": "crossbeam - lock-free structures and channel primitives",
+          "url": "https://github.com/crossbeam-rs/crossbeam"
+        }
       ],
       "resources": [
         {
@@ -1219,7 +1320,11 @@ export default {
         "Never share the host PID namespace or mount host /proc into an untrusted workload.",
         "Drop capabilities and apply seccomp in addition to namespaces; isolation without least privilege is cosmetic."
       ],
-      "crates": ["nix", "libc", "caps"],
+      "crates": [
+        "nix",
+        "libc",
+        "caps"
+      ],
       "pitfall": "Enabling a domain controller in a cgroup that still has processes: the write fails with EBUSY, the setup script ignores the error, and the limits silently never apply.",
       "questions": [
         {
@@ -1246,7 +1351,12 @@ export default {
         },
         {
           "q": "Which cgroup limit throttles instead of killing when exceeded?",
-          "options": ["memory.max", "memory.high", "pids.max", "memory.oom.group"],
+          "options": [
+            "memory.max",
+            "memory.high",
+            "pids.max",
+            "memory.oom.group"
+          ],
           "answer": 1,
           "explain": "memory.high applies reclaim pressure and slows allocations. memory.max is a hard wall that ends in the cgroup OOM killer."
         }
@@ -1258,8 +1368,14 @@ export default {
         "Namespaces hide; capabilities and seccomp restrict. You need all three."
       ],
       "github": [
-        { "name": "runc - reference OCI runtime built on namespaces and cgroups", "url": "https://github.com/opencontainers/runc" },
-        { "name": "podman - rootless container engine", "url": "https://github.com/containers/podman" }
+        {
+          "name": "runc - reference OCI runtime built on namespaces and cgroups",
+          "url": "https://github.com/opencontainers/runc"
+        },
+        {
+          "name": "podman - rootless container engine",
+          "url": "https://github.com/podman-container-tools/podman"
+        }
       ],
       "resources": [
         {
@@ -1342,7 +1458,11 @@ export default {
         "Set no_new_privs and a seccomp filter before exec; verify NoNewPrivs and Seccomp in /proc/self/status.",
         "Close inherited file descriptors across the runtime boundary; a descriptor to the host root defeats pivot_root."
       ],
-      "crates": ["nix", "libc", "caps"],
+      "crates": [
+        "nix",
+        "libc",
+        "caps"
+      ],
       "pitfall": "Skipping mount --make-rprivate: a mount performed inside the container propagates back to the host mount namespace and every other container that shares it.",
       "questions": [
         {
@@ -1386,8 +1506,14 @@ export default {
         "Verify CapEff, NoNewPrivs and Seccomp from inside; do not trust the config file."
       ],
       "github": [
-        { "name": "bubblewrap - unprivileged sandboxing used by Flatpak", "url": "https://github.com/containers/bubblewrap" },
-        { "name": "runc - OCI runtime reference implementation", "url": "https://github.com/opencontainers/runc" }
+        {
+          "name": "bubblewrap - unprivileged sandboxing used by Flatpak",
+          "url": "https://github.com/containers/bubblewrap"
+        },
+        {
+          "name": "runc - OCI runtime reference implementation",
+          "url": "https://github.com/opencontainers/runc"
+        }
       ],
       "resources": [
         {
@@ -1469,7 +1595,11 @@ export default {
         "Use systemd-analyze critical-chain, not blame, to find what gates the boot target.",
         "Persist the journal across reboots so the previous boot's failure is still readable."
       ],
-      "crates": ["libc", "nix", "rustix"],
+      "crates": [
+        "libc",
+        "nix",
+        "rustix"
+      ],
       "pitfall": "A container entrypoint that starts the app directly with no init: the app becomes PID 1, ignores SIGTERM by default, and never reaps, so shutdowns time out and zombies accumulate.",
       "questions": [
         {
@@ -1513,8 +1643,14 @@ export default {
         "systemd-analyze critical-chain answers what gates boot; blame answers what is slow."
       ],
       "github": [
-        { "name": "systemd - init, units, and boot targets", "url": "https://github.com/systemd/systemd" },
-        { "name": "Linux kernel init and initramfs code", "url": "https://github.com/torvalds/linux" }
+        {
+          "name": "systemd - init, units, and boot targets",
+          "url": "https://github.com/systemd/systemd"
+        },
+        {
+          "name": "Linux kernel init and initramfs code",
+          "url": "https://github.com/torvalds/linux"
+        }
       ],
       "resources": [
         {
@@ -1596,7 +1732,11 @@ export default {
         "Enable dyndbg per file instead of adding printk to hot paths; console writes serialise.",
         "Check lspci -k or lsusb -t before debugging a protocol; an unbound device explains most 'hardware broken' reports."
       ],
-      "crates": ["nix", "libc", "rustix"],
+      "crates": [
+        "nix",
+        "libc",
+        "rustix"
+      ],
       "pitfall": "Sleeping in an atomic context: calling a function that takes a mutex or allocates with GFP_KERNEL from a hard IRQ handler produces a scheduling-while-atomic warning and can deadlock the CPU.",
       "questions": [
         {
@@ -1640,8 +1780,14 @@ export default {
         "dmesg, lspci -k, lsusb -t, then dyndbg; in that order."
       ],
       "github": [
-        { "name": "Linux kernel driver core and driver API", "url": "https://github.com/torvalds/linux" },
-        { "name": "systemd - udev, the userspace half of the device model", "url": "https://github.com/systemd/systemd" }
+        {
+          "name": "Linux kernel driver core and driver API",
+          "url": "https://github.com/torvalds/linux"
+        },
+        {
+          "name": "systemd - udev, the userspace half of the device model",
+          "url": "https://github.com/systemd/systemd"
+        }
       ],
       "resources": [
         {
@@ -1723,7 +1869,11 @@ export default {
         "Measure the cost of the program attached versus detached on the same workload.",
         "Pin programs and maps in /sys/fs/bpf and document detach; an orphaned probe is an invisible tax."
       ],
-      "crates": ["aya", "aya-ebpf", "aya-log"],
+      "crates": [
+        "aya",
+        "aya-ebpf",
+        "aya-log"
+      ],
       "pitfall": "A kprobe on a hot function that calls bpf_probe_read on every invocation: the verifier accepts it, the benchmark shows a 30 percent regression, and the probe is invisible in the application's own metrics.",
       "questions": [
         {
@@ -1767,8 +1917,14 @@ export default {
         "Loading needs CAP_BPF; lockdown and seccomp can make it impossible by design."
       ],
       "github": [
-        { "name": "aya - eBPF library written in Rust", "url": "https://github.com/aya-rs/aya" },
-        { "name": "bcc - tracing toolkit and reference probes", "url": "https://github.com/iovisor/bcc" }
+        {
+          "name": "aya - eBPF library written in Rust",
+          "url": "https://github.com/aya-rs/aya"
+        },
+        {
+          "name": "bcc - tracing toolkit and reference probes",
+          "url": "https://github.com/iovisor/bcc"
+        }
       ],
       "resources": [
         {
@@ -1851,7 +2007,11 @@ export default {
         "Handle -ECANCELED and partial completions explicitly; they are normal, not exceptional.",
         "Measure io_uring_enter calls per operation and confirm registered buffers are in use before claiming a win."
       ],
-      "crates": ["io-uring", "tokio", "libc"],
+      "crates": [
+        "io-uring",
+        "tokio",
+        "libc"
+      ],
       "pitfall": "Submitting a request that points at a stack buffer or a Vec that is reallocated before completion: the kernel writes into freed memory, producing silent corruption rather than an error.",
       "questions": [
         {
@@ -1895,8 +2055,14 @@ export default {
         "Some runtimes seccomp-block io_uring_setup; always ship a fallback path."
       ],
       "github": [
-        { "name": "io-uring - Rust bindings maintained under tokio-rs", "url": "https://github.com/tokio-rs/io-uring" },
-        { "name": "liburing - reference C library and test suite", "url": "https://github.com/axboe/liburing" }
+        {
+          "name": "io-uring - Rust bindings maintained under tokio-rs",
+          "url": "https://github.com/tokio-rs/io-uring"
+        },
+        {
+          "name": "liburing - reference C library and test suite",
+          "url": "https://github.com/axboe/liburing"
+        }
       ],
       "resources": [
         {
@@ -1978,7 +2144,11 @@ export default {
         "Record sched_rt_runtime_us and the preemption model in the host baseline; they change the achievable bound.",
         "Keep RT threads off shared cores and out of the memory-reclaim path; isolation is a deployment property."
       ],
-      "crates": ["libc", "nix", "crossbeam"],
+      "crates": [
+        "libc",
+        "nix",
+        "crossbeam"
+      ],
       "pitfall": "Holding a PI mutex across a page fault or a blocking read: inheritance raises the holder's priority but cannot shorten an unbounded wait, so the deadline is still missed.",
       "questions": [
         {
@@ -2022,8 +2192,14 @@ export default {
         "check /proc/sys/kernel/sched_rt_runtime_us before blaming the application for jitter."
       ],
       "github": [
-        { "name": "Linux kernel scheduler and PREEMPT_RT sources", "url": "https://github.com/torvalds/linux" },
-        { "name": "nix - sched module for policy and affinity", "url": "https://github.com/nix-rust/nix" }
+        {
+          "name": "Linux kernel scheduler and PREEMPT_RT sources",
+          "url": "https://github.com/torvalds/linux"
+        },
+        {
+          "name": "nix - sched module for policy and affinity",
+          "url": "https://github.com/nix-rust/nix"
+        }
       ],
       "resources": [
         {
@@ -2105,7 +2281,11 @@ export default {
         "Block signals before creating threads, then serve them from signalfd or a self-pipe.",
         "Set PR_SET_PDEATHSIG in children and mark a subreaper in supervisors so grandchildren are reaped."
       ],
-      "crates": ["libc", "nix", "signal-hook"],
+      "crates": [
+        "libc",
+        "nix",
+        "signal-hook"
+      ],
       "pitfall": "Calling waitpid once per SIGCHLD: when two children exit between signals, the second zombie is never reaped and the container slowly exhausts its PID limit.",
       "questions": [
         {
@@ -2121,7 +2301,12 @@ export default {
         },
         {
           "q": "Which call is never restarted by SA_RESTART?",
-          "options": ["read on a pipe", "waitpid", "nanosleep", "epoll_wait"],
+          "options": [
+            "read on a pipe",
+            "waitpid",
+            "nanosleep",
+            "epoll_wait"
+          ],
           "answer": 3,
           "explain": "epoll_wait, poll and select always return EINTR when a signal arrives. read, write, wait and sleep are restarted when SA_RESTART is set."
         },
@@ -2144,8 +2329,14 @@ export default {
         "PR_SET_PDEATHSIG prevents orphans; it does not implement graceful shutdown."
       ],
       "github": [
-        { "name": "nix - signal and wait bindings", "url": "https://github.com/nix-rust/nix" },
-        { "name": "signal-hook - iterator-based signal handling", "url": "https://github.com/vorner/signal-hook" }
+        {
+          "name": "nix - signal and wait bindings",
+          "url": "https://github.com/nix-rust/nix"
+        },
+        {
+          "name": "signal-hook - iterator-based signal handling",
+          "url": "https://github.com/vorner/signal-hook"
+        }
       ],
       "resources": [
         {
@@ -2227,12 +2418,21 @@ export default {
         "Enable memory.oom.group for workload cgroups so a partial kill cannot leave a half-dead service.",
         "Alert on the leaf group's memory.events and cpu.stat nr_throttled; parent counters hide which child is responsible."
       ],
-      "crates": ["libc", "nix", "rustix"],
+      "crates": [
+        "libc",
+        "nix",
+        "rustix"
+      ],
       "pitfall": "Setting RLIMIT_NPROC to bound one service: the limit is counted per real UID across the whole host, so an unrelated process of the same user can exhaust it and make your service's fork fail with EAGAIN.",
       "questions": [
         {
           "q": "Which errno does a full descriptor table produce on open?",
-          "options": ["ENFILE", "EMFILE", "EAGAIN", "ENOMEM"],
+          "options": [
+            "ENFILE",
+            "EMFILE",
+            "EAGAIN",
+            "ENOMEM"
+          ],
           "answer": 1,
           "explain": "EMFILE is the per-process limit from RLIMIT_NOFILE. ENFILE is the system-wide file table limit, a different failure."
         },
@@ -2266,8 +2466,14 @@ export default {
         "Read /sys/fs/cgroup inside the process before sizing any pool or heap."
       ],
       "github": [
-        { "name": "runc - applies cgroup v2 limits per container", "url": "https://github.com/opencontainers/runc" },
-        { "name": "systemd - resource control unit settings", "url": "https://github.com/systemd/systemd" }
+        {
+          "name": "runc - applies cgroup v2 limits per container",
+          "url": "https://github.com/opencontainers/runc"
+        },
+        {
+          "name": "systemd - resource control unit settings",
+          "url": "https://github.com/systemd/systemd"
+        }
       ],
       "resources": [
         {
@@ -2350,12 +2556,21 @@ export default {
         "Apply Landlock for filesystem confinement where seccomp cannot express a path rule.",
         "Re-run the escape checklist from inside the sandbox after every runtime or kernel upgrade."
       ],
-      "crates": ["caps", "libc", "seccompiler"],
+      "crates": [
+        "caps",
+        "libc",
+        "seccompiler"
+      ],
       "pitfall": "A seccomp filter that checks syscall numbers without checking the architecture: on x86-64 an x32 syscall number with bit 30 set reaches the same code path and slips past the filter.",
       "questions": [
         {
           "q": "Which capability is effectively unrestricted root for container purposes?",
-          "options": ["CAP_NET_BIND_SERVICE", "CAP_SYS_ADMIN", "CAP_CHOWN", "CAP_SETUID"],
+          "options": [
+            "CAP_NET_BIND_SERVICE",
+            "CAP_SYS_ADMIN",
+            "CAP_CHOWN",
+            "CAP_SETUID"
+          ],
           "answer": 1,
           "explain": "CAP_SYS_ADMIN covers mount, namespace creation, and a long tail of privileged operations. A workload holding it can build its own less-restricted environment."
         },
@@ -2389,8 +2604,14 @@ export default {
         "Landlock for paths, seccomp for syscalls, capabilities for privilege: three different questions."
       ],
       "github": [
-        { "name": "libseccomp - filter construction and reference BPF", "url": "https://github.com/seccomp/libseccomp" },
-        { "name": "caps-rs - read and drop Linux capabilities", "url": "https://github.com/lucab/caps-rs" }
+        {
+          "name": "libseccomp - filter construction and reference BPF",
+          "url": "https://github.com/seccomp/libseccomp"
+        },
+        {
+          "name": "caps-rs - read and drop Linux capabilities",
+          "url": "https://github.com/lucab/caps-rs"
+        }
       ],
       "resources": [
         {
@@ -2473,7 +2694,11 @@ export default {
         "Use strace -f -y to see the actual syscall sequence, and perf trace when overhead matters.",
         "Turn every environment-specific bug into an assertion in the image's smoke test."
       ],
-      "crates": ["libc", "nix", "rustix"],
+      "crates": [
+        "libc",
+        "nix",
+        "rustix"
+      ],
       "pitfall": "Wrapping a failing syscall in an infinite retry loop: EPERM, EACCES and EINVAL are deterministic, so the retry converts a clear error into a hang with no error message.",
       "questions": [
         {
@@ -2517,8 +2742,14 @@ export default {
         "Keep a libc-only diagnostic binary in the image; it is the incident attachment."
       ],
       "github": [
-        { "name": "strace - syscall tracer used in every diagnosis", "url": "https://github.com/strace/strace" },
-        { "name": "Linux kernel source: the syscall error paths", "url": "https://github.com/torvalds/linux" }
+        {
+          "name": "strace - syscall tracer used in every diagnosis",
+          "url": "https://github.com/strace/strace"
+        },
+        {
+          "name": "Linux kernel source: the syscall error paths",
+          "url": "https://github.com/torvalds/linux"
+        }
       ],
       "resources": [
         {

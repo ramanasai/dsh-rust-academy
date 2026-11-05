@@ -1,20 +1,8 @@
 /**
  * Engineering craft track.
  *
- * The practice layer for senior Rust engineers: review that argues about design,
- * RFCs and ADRs as decision records, debugging by shrinking, incident command,
- * blameless postmortems, reference-class forecasting, writing that survives
- * review, documentation that fails the build when stale, onboarding, pairing,
- * debt you can price, refactoring under compiler guarantees, legacy seams, test
- * strategy by failure mode, prioritisation, product thinking, open source, career
- * leverage, and metrics that cannot be gamed quietly.
- *
- * Crate APIs referenced here are the stable public surfaces documented on
- * docs.rs (tracing, insta, proptest, criterion, hdrhistogram, metrics,
- * cargo_metadata, pulldown-cmark, trybuild, git2/gix); no version pin is
- * asserted in prose. Every link was fetched and returns HTTP 200.
- *
- * Data is JSON-compatible and consumed by the plugin build.
+ * Authored for the Rust Academy plugin. Every lesson is plain JSON-compatible
+ * data consumed by src/app.js through build.mjs.
  */
 export default {
   "key": "engineering-craft",
@@ -1354,7 +1342,7 @@ export default {
       "resources": [
         {
           "title": "rustc-dev-guide: how a large Rust project onboards contributors",
-          "url": "https://rust-lang.github.io/rustc-dev-guide/",
+          "url": "https://rustc-dev-guide.rust-lang.org/",
           "kind": "docs"
         },
         {
@@ -2536,7 +2524,7 @@ export default {
         },
         {
           "title": "rustc-dev-guide: a public model of growing contributors into owners",
-          "url": "https://rust-lang.github.io/rustc-dev-guide/",
+          "url": "https://rustc-dev-guide.rust-lang.org/",
           "kind": "docs"
         },
         {

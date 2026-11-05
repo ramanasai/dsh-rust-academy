@@ -126,6 +126,20 @@ legitimately need definitions from earlier sections are recorded in
 baseline with `node scripts/compiler-gate.mjs --update-baseline`, or run
 `node scripts/compiler-gate.mjs --strict` to fail on any failure.
 
+There is also an **online content audit** that validates chapters one by one —
+every resource URL, every GitHub repo and every crate name against the live
+registries:
+
+```bash
+node scripts/audit-content.mjs              # full audit (cached, ~1 minute cold)
+node scripts/audit-content.mjs --track web  # one track
+node scripts/audit-content.mjs --no-network # structure only
+```
+
+Latest result: **640/640 chapters clean, 0 broken links, 0 unknown crates**
+(16 ACM/CACM links are bot-blocked to automated fetches but valid in a browser).
+The generated report is `docs/content-audit.md`.
+
 Each chapter supports: `id`, `title`, `minutes`, `level`, `goal`, `sections[]`
 (`h`/`p`/`list`/`code`/`tip`), `exercise` (`prompt`/`starter`/`hint`/`solution`),
 `questions[]` (MCQ with `answer` index and `explain`), `quickbytes[]`,
@@ -145,6 +159,8 @@ Each chapter supports: `id`, `title`, `minutes`, `level`, `goal`, `sections[]`
 | `src/data/` | Curriculum modules and track index |
 | `scripts/validate-data.mjs` | Data-module validator |
 | `scripts/compiler-gate.mjs` | Compiler gate: rustfmt parse + rustc compile of snippets |
+| `scripts/audit-content.mjs` | Online audit: URLs, GitHub repos, crate names, structure |
+| `docs/content-audit.md` | Latest per-chapter audit report |
 | `.snippet-baseline.json` | Known context-dependent snippets accepted by the gate |
 | `locale/en.json` | Plugin Manager title and description |
 | `icon.svg` | Original crab artwork |

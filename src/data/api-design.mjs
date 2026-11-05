@@ -1,11 +1,8 @@
 /**
  * API design track.
  *
- * Versions used across the lessons: axum 0.8.x, utoipa 6.x (utoipa-axum 0.3.x),
- * tonic 0.14.x, async-graphql 7.x, progenitor 0.15.x, tower_governor 0.8.x,
- * jsonwebtoken 11.x, sqlx 0.9.x.
- *
- * Data is JSON-compatible and consumed by the plugin build.
+ * Authored for the Rust Academy plugin. Every lesson is plain JSON-compatible
+ * data consumed by src/app.js through build.mjs.
  */
 export default {
   "key": "api-design",
@@ -956,7 +953,7 @@ export default {
       "github": [
         {
           "name": "sqlx - row types, query_as, and Postgres binds",
-          "url": "https://github.com/launchbadge/sqlx"
+          "url": "https://github.com/transact-rs/sqlx"
         },
         {
           "name": "axum - Query extractor and response types",
@@ -982,7 +979,7 @@ export default {
         },
         {
           "title": "sqlx repository: Postgres type mappings and query macros",
-          "url": "https://github.com/launchbadge/sqlx",
+          "url": "https://github.com/transact-rs/sqlx",
           "kind": "repo"
         }
       ]
@@ -1088,7 +1085,7 @@ export default {
       "github": [
         {
           "name": "sqlx - QueryBuilder and Postgres array binds",
-          "url": "https://github.com/launchbadge/sqlx"
+          "url": "https://github.com/transact-rs/sqlx"
         },
         {
           "name": "axum - Query extractor with serde deserialization",
@@ -1109,7 +1106,7 @@ export default {
         },
         {
           "title": "sqlx repository: QueryBuilder and array encoding",
-          "url": "https://github.com/launchbadge/sqlx",
+          "url": "https://github.com/transact-rs/sqlx",
           "kind": "repo"
         },
         {
@@ -1228,7 +1225,7 @@ export default {
       "github": [
         {
           "name": "sqlx - transactions and ON CONFLICT handling",
-          "url": "https://github.com/launchbadge/sqlx"
+          "url": "https://github.com/transact-rs/sqlx"
         },
         {
           "name": "stripe/openapi - a large public API that documents idempotency keys",
@@ -1765,7 +1762,7 @@ export default {
         },
         {
           "name": "governor - the quota and GCRA implementation underneath",
-          "url": "https://github.com/antifuchs/governor"
+          "url": "https://github.com/boinkor-net/governor"
         }
       ],
       "pitfall": "Deploying the limiter without `into_make_service_with_connect_info::<SocketAddr>()`: the peer-IP extractor finds nothing, every request falls into one shared bucket, and a single client's traffic throttles the entire API while the per-key dashboards look flat.",

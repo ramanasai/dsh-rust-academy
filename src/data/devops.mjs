@@ -1,13 +1,8 @@
 /**
  * Delivery & platform track.
  *
- * Tool versions referenced across the lessons: cargo-chef 0.1.78,
- * cargo-deny 0.20.x (config schema post-0.18, where `version = 2` and the
- * `vulnerability`/`unlicensed`/`deny` keys are gone), kube 5.0.0 with
- * k8s-openapi 0.29.x, sigstore 0.14.0, metrics-exporter-prometheus 0.18.x,
- * unleash-api-client 0.17.x, sha2 0.11.x, semver 1.0.x, axum 0.8.x.
- *
- * Data is JSON-compatible and consumed by the plugin build.
+ * Authored for the Rust Academy plugin. Every lesson is plain JSON-compatible
+ * data consumed by src/app.js through build.mjs.
  */
 export default {
   "key": "devops",
@@ -204,7 +199,7 @@ export default {
             "Every workflow run gets a GITHUB_TOKEN whose scopes come from the permissions block. Omitting the block leaves the repository default, which is often read-write on contents, packages and more; a compromised dependency in a build step then inherits that. Set permissions: contents: read at the top of the workflow and widen it per job, where the widening is visible next to the step that needs it.",
             "Two triggers carry most of the risk. pull_request from a fork runs with a read-only token and no secrets, which is the safe default; pull_request_target runs in the base repository's context with secrets and is the classic path to remote code execution when the job checks out and builds the contributor's code. If you need pull_request_target for labeling, never combine it with a checkout of the head commit."
           ],
-          "code": "name: ci\non:\n  push:\n    branches: [main]\n  pull_request:\n\npermissions:\n  contents: read\n\nconcurrency:\n  group: ci-\${{ github.workflow }}-\${{ github.ref }}\n  cancel-in-progress: \${{ github.event_name == 'pull_request' }}\n\njobs:\n  lint:\n    runs-on: ubuntu-24.04\n    timeout-minutes: 15\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions-rust-lang/setup-rust-toolchain@v1\n        with:\n          toolchain: 1.85.0\n          components: clippy,rustfmt\n      - run: ./scripts/ci.sh",
+          "code": "name: ci\non:\n  push:\n    branches: [main]\n  pull_request:\n\npermissions:\n  contents: read\n\nconcurrency:\n  group: ci-${{ github.workflow }}-${{ github.ref }}\n  cancel-in-progress: ${{ github.event_name == 'pull_request' }}\n\njobs:\n  lint:\n    runs-on: ubuntu-24.04\n    timeout-minutes: 15\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions-rust-lang/setup-rust-toolchain@v1\n        with:\n          toolchain: 1.85.0\n          components: clippy,rustfmt\n      - run: ./scripts/ci.sh",
           "tip": "cancel-in-progress on pull_request only: cancelling a main-branch deploy midway leaves the cluster in a half-applied state."
         },
         {
@@ -235,7 +230,7 @@ export default {
         "prompt": "Given a single job that builds, tests and pushes an image, split it into build, test and publish jobs with minimal permissions, an artifact handoff, and a concurrency rule that does not cancel main-branch runs.",
         "starter": "name: ci\non: [push, pull_request]\n\njobs:\n  everything:\n    runs-on: ubuntu-24.04\n    steps:\n      - uses: actions/checkout@v4\n      - run: cargo build --release --locked\n      - run: cargo nextest run --locked\n      # push image here\n",
         "hint": "Top-level permissions: contents: read; give the publish job packages: write and id-token: write. Upload the binary as an artifact in build and download it in test. Set cancel-in-progress only for pull_request events.",
-        "solution": "name: ci\non:\n  push:\n    branches: [main]\n  pull_request:\n\npermissions:\n  contents: read\n\nconcurrency:\n  group: ci-\${{ github.workflow }}-\${{ github.ref }}\n  cancel-in-progress: \${{ github.event_name == 'pull_request' }}\n\njobs:\n  build:\n    runs-on: ubuntu-24.04\n    timeout-minutes: 20\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions-rust-lang/setup-rust-toolchain@v1\n        with:\n          toolchain: 1.85.0\n      - run: cargo build --release --locked --bin api\n      - uses: actions/upload-artifact@v4\n        with:\n          name: api-binary\n          path: target/release/api\n\n  test:\n    needs: build\n    runs-on: ubuntu-24.04\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions-rust-lang/setup-rust-toolchain@v1\n        with:\n          toolchain: 1.85.0\n      - run: cargo nextest run --locked\n\n  publish:\n    needs: [build, test]\n    if: github.ref == 'refs/heads/main'\n    runs-on: ubuntu-24.04\n    permissions:\n      contents: read\n      packages: write\n      id-token: write\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/download-artifact@v4\n        with:\n          name: api-binary\n          path: ./bin\n      - run: ./scripts/publish-image.sh ./bin/api"
+        "solution": "name: ci\non:\n  push:\n    branches: [main]\n  pull_request:\n\npermissions:\n  contents: read\n\nconcurrency:\n  group: ci-${{ github.workflow }}-${{ github.ref }}\n  cancel-in-progress: ${{ github.event_name == 'pull_request' }}\n\njobs:\n  build:\n    runs-on: ubuntu-24.04\n    timeout-minutes: 20\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions-rust-lang/setup-rust-toolchain@v1\n        with:\n          toolchain: 1.85.0\n      - run: cargo build --release --locked --bin api\n      - uses: actions/upload-artifact@v4\n        with:\n          name: api-binary\n          path: target/release/api\n\n  test:\n    needs: build\n    runs-on: ubuntu-24.04\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions-rust-lang/setup-rust-toolchain@v1\n        with:\n          toolchain: 1.85.0\n      - run: cargo nextest run --locked\n\n  publish:\n    needs: [build, test]\n    if: github.ref == 'refs/heads/main'\n    runs-on: ubuntu-24.04\n    permissions:\n      contents: read\n      packages: write\n      id-token: write\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/download-artifact@v4\n        with:\n          name: api-binary\n          path: ./bin\n      - run: ./scripts/publish-image.sh ./bin/api"
       },
       "questions": [
         {
@@ -360,7 +355,7 @@ export default {
             "cargo-chef helps within one Docker layer history; sccache helps across machines and branches. It wraps rustc via RUSTC_WRAPPER, hashes the compilation inputs, and returns a cached object file when the hash matches. Because the key is the compiler invocation rather than the target directory, sccache survives a wiped target/ and a fresh runner.",
             "The economics only work with a shared backend. A local sccache on an ephemeral runner starts empty on every job; point it at a remote store (S3, Redis, or GitHub Actions cache via SCCACHE_GHA_ENABLED) and hit rates climb after the first branch warms it. Expect 50 to 80 percent on repeated CI runs, and near zero on a cache miss - so measure rather than assume."
           ],
-          "code": "# In the builder stage:\n#   ENV RUSTC_WRAPPER=sccache SCCACHE_GHA_ENABLED=true\n#   RUN --mount=type=cache,target=/usr/local/cargo/registry \\\n#       --mount=type=cache,target=/root/.cache/sccache \\\n#       cargo build --release --locked --bin api\n\n# Outside containers, on a self-hosted runner:\n#   export RUSTC_WRAPPER=sccache\n#   export SCCACHE_BUCKET=acme-rust-sccache\n#   sccache --start-server\n#   sccache --show-stats   # check hits before and after a change\n\n# CI cache key that cannot go stale:\n#   \${{ runner.os }}-\${{ hashFiles('**/Cargo.lock') }}-\${{ env.RUSTFLAGS }}-rust1.85",
+          "code": "# In the builder stage:\n#   ENV RUSTC_WRAPPER=sccache SCCACHE_GHA_ENABLED=true\n#   RUN --mount=type=cache,target=/usr/local/cargo/registry \\\n#       --mount=type=cache,target=/root/.cache/sccache \\\n#       cargo build --release --locked --bin api\n\n# Outside containers, on a self-hosted runner:\n#   export RUSTC_WRAPPER=sccache\n#   export SCCACHE_BUCKET=acme-rust-sccache\n#   sccache --start-server\n#   sccache --show-stats   # check hits before and after a change\n\n# CI cache key that cannot go stale:\n#   ${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}-${{ env.RUSTFLAGS }}-rust1.85",
           "tip": "sccache and a target/ cache solve different problems. Restoring target/ across a flag change causes full rebuilds; sccache just misses."
         },
         {
@@ -1011,7 +1006,7 @@ export default {
         },
         {
           "title": "Kubernetes: liveness, readiness and startup probes",
-          "url": "https://kubernetes.io/docs/concepts/configuration/liveness-readiness-startup-probes/",
+          "url": "https://kubernetes.io/docs/concepts/workloads/pods/probes/",
           "kind": "docs"
         },
         {
@@ -1155,7 +1150,7 @@ export default {
         },
         {
           "title": "Kubernetes: configuration best practices",
-          "url": "https://kubernetes.io/docs/concepts/configuration/overview/",
+          "url": "https://kubernetes.io/blog/2025/11/25/configuration-good-practices/",
           "kind": "docs"
         },
         {
@@ -1295,7 +1290,7 @@ export default {
         },
         {
           "title": "Kubernetes: managing resources with kubectl",
-          "url": "https://kubernetes.io/docs/concepts/cluster-administration/manage-deployment/",
+          "url": "https://kubernetes.io/docs/concepts/workloads/management/",
           "kind": "docs"
         },
         {
@@ -1986,7 +1981,7 @@ export default {
       "resources": [
         {
           "title": "Kubernetes: managing deployments and rollouts",
-          "url": "https://kubernetes.io/docs/concepts/cluster-administration/manage-deployment/",
+          "url": "https://kubernetes.io/docs/concepts/workloads/management/",
           "kind": "docs"
         },
         {
@@ -2275,7 +2270,7 @@ export default {
         },
         {
           "title": "Docker Docs: SLSA provenance attestations",
-          "url": "https://docs.docker.com/build/attestations/slsa-provenance/",
+          "url": "https://docs.docker.com/build/metadata/attestations/slsa-provenance/",
           "kind": "docs"
         },
         {
@@ -2560,7 +2555,7 @@ export default {
         },
         {
           "title": "Sealed Secrets: encrypted secrets in git",
-          "url": "https://github.com/bitnami-labs/sealed-secrets",
+          "url": "https://github.com/bitnami/sealed-secrets",
           "kind": "repo"
         },
         {
@@ -2847,5 +2842,5 @@ export default {
         }
       ]
     }
-  ],
+  ]
 };

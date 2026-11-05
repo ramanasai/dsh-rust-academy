@@ -1,11 +1,8 @@
 /**
  * Algorithms & problem solving track.
  *
- * API versions used across the lessons: petgraph 0.8.x, priority-queue 2.7.x,
- * criterion 0.8.x, proptest 1.12.x, indexmap 2.14.x, hashbrown 0.17.x,
- * bitvec 1.1.x, num-integer 0.1.x, rayon 1.12.x, rand 0.10.x.
- *
- * Data is JSON-compatible and consumed by the plugin build.
+ * Authored for the Rust Academy plugin. Every lesson is plain JSON-compatible
+ * data consumed by src/app.js through build.mjs.
  */
 export default {
   "key": "algorithms",
@@ -61,36 +58,7 @@ export default {
             "Benchmarks mislead in three predictable ways: debug builds, dead-code elimination, and unrealistic inputs. Measure with --release, consume results through std::hint::black_box, and generate the distribution you actually see: nearly sorted keys, long duplicate runs, strings sharing a prefix. A benchmark over random u64 values tells you nothing about a map keyed by short strings that all begin with the same eight bytes.",
             "Criterion warms up, collects enough samples to report a confidence interval, and can compare against a saved baseline, which is how you separate a real regression from noise. Report throughput as well as time per iteration, and keep input generation outside the measured closure so you time the algorithm rather than the allocator. Change one variable per run and record the commit you measured."
           ],
-          "code": `// benches/dedupe.rs — run with: cargo bench --bench dedupe
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use std::hint::black_box;
-
-fn count_equal_pairs(xs: &[u64]) -> usize {
-    let mut pairs = 0usize;
-    for (i, &a) in xs.iter().enumerate() {
-        for &b in &xs[..i] {
-            if a == b {
-                pairs += 1;
-            }
-        }
-    }
-    pairs
-}
-
-fn bench(c: &mut Criterion) {
-    let mut group = c.benchmark_group("equal_pairs");
-    for n in [500usize, 1_000, 2_000] {
-        let xs: Vec<u64> = (0..n as u64).map(|i| i.wrapping_mul(2_654_435_761) % 7919).collect();
-        group.throughput(Throughput::Elements(n as u64));
-        group.bench_with_input(BenchmarkId::from_parameter(n), &xs, |b, input| {
-            b.iter(|| count_equal_pairs(black_box(input)))
-        });
-    }
-    group.finish();
-}
-
-criterion_group!(benches, bench);
-criterion_main!(benches);`,
+          "code": "// benches/dedupe.rs — run with: cargo bench --bench dedupe\nuse criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};\nuse std::hint::black_box;\n\nfn count_equal_pairs(xs: &[u64]) -> usize {\n    let mut pairs = 0usize;\n    for (i, &a) in xs.iter().enumerate() {\n        for &b in &xs[..i] {\n            if a == b {\n                pairs += 1;\n            }\n        }\n    }\n    pairs\n}\n\nfn bench(c: &mut Criterion) {\n    let mut group = c.benchmark_group(\"equal_pairs\");\n    for n in [500usize, 1_000, 2_000] {\n        let xs: Vec<u64> = (0..n as u64).map(|i| i.wrapping_mul(2_654_435_761) % 7919).collect();\n        group.throughput(Throughput::Elements(n as u64));\n        group.bench_with_input(BenchmarkId::from_parameter(n), &xs, |b, input| {\n            b.iter(|| count_equal_pairs(black_box(input)))\n        });\n    }\n    group.finish();\n}\n\ncriterion_group!(benches, bench);\ncriterion_main!(benches);",
           "tip": "Divide the reported time by n and watch the per-element number: a flat curve is linear, a rising curve is super-linear."
         },
         {
@@ -110,47 +78,7 @@ criterion_main!(benches);`,
         "prompt": "Write a deterministic doubling experiment: count the comparisons performed by a quadratic duplicate check on all-distinct input at n = 500, 1000, 2000 and 4000, print the ratio between consecutive sizes, and confirm it converges on 4. Then print the comparison count for a sort-and-scan version to show the difference in growth.",
         "starter": "fn count_quadratic(xs: &[u64]) -> usize {\n    // count every element-to-element comparison, including the ones that break early\n    todo!()\n}\n\nfn count_sort_scan(xs: &[u64]) -> (usize, usize) {\n    // returns (distinct, scan comparisons); sort comparisons are internal to std\n    todo!()\n}\n\nfn main() {\n    let mut previous: Option<usize> = None;\n    for n in [500usize, 1_000, 2_000, 4_000] {\n        // build 0..n, measure, print n, steps and ratio\n    }\n}",
         "hint": "Keep a previous step count outside the loop. The ratio is steps(n) / steps(n/2); for a loop over all earlier elements it approaches 4, while the scan after sorting is linear.",
-        "solution": `fn count_quadratic(xs: &[u64]) -> usize {
-    let mut steps = 0usize;
-    for (i, &a) in xs.iter().enumerate() {
-        for &b in &xs[..i] {
-            steps += 1;
-            if a == b {
-                break;
-            }
-        }
-    }
-    steps
-}
-
-fn count_sort_scan(xs: &[u64]) -> (usize, usize) {
-    let mut sorted = xs.to_vec();
-    sorted.sort_unstable();
-    let mut distinct = 1usize;
-    let mut steps = 0usize;
-    for pair in sorted.windows(2) {
-        steps += 1;
-        if pair[0] != pair[1] {
-            distinct += 1;
-        }
-    }
-    (distinct, steps)
-}
-
-fn main() {
-    let mut previous: Option<usize> = None;
-    for n in [500usize, 1_000, 2_000, 4_000] {
-        let xs: Vec<u64> = (0..n as u64).collect();
-        let steps = count_quadratic(&xs);
-        let ratio = previous.map(|p| steps as f64 / p as f64);
-        println!("n={n:>5} quadratic_steps={steps:>9} ratio={ratio:?}");
-        previous = Some(steps);
-    }
-
-    let xs: Vec<u64> = (0..4_000u64).collect();
-    let (distinct, scan_steps) = count_sort_scan(&xs);
-    println!("sort+scan: distinct={distinct} scan_steps={scan_steps} (linear after an O(n log n) sort)");
-}`
+        "solution": "fn count_quadratic(xs: &[u64]) -> usize {\n    let mut steps = 0usize;\n    for (i, &a) in xs.iter().enumerate() {\n        for &b in &xs[..i] {\n            steps += 1;\n            if a == b {\n                break;\n            }\n        }\n    }\n    steps\n}\n\nfn count_sort_scan(xs: &[u64]) -> (usize, usize) {\n    let mut sorted = xs.to_vec();\n    sorted.sort_unstable();\n    let mut distinct = 1usize;\n    let mut steps = 0usize;\n    for pair in sorted.windows(2) {\n        steps += 1;\n        if pair[0] != pair[1] {\n            distinct += 1;\n        }\n    }\n    (distinct, steps)\n}\n\nfn main() {\n    let mut previous: Option<usize> = None;\n    for n in [500usize, 1_000, 2_000, 4_000] {\n        let xs: Vec<u64> = (0..n as u64).collect();\n        let steps = count_quadratic(&xs);\n        let ratio = previous.map(|p| steps as f64 / p as f64);\n        println!(\"n={n:>5} quadratic_steps={steps:>9} ratio={ratio:?}\");\n        previous = Some(steps);\n    }\n\n    let xs: Vec<u64> = (0..4_000u64).collect();\n    let (distinct, scan_steps) = count_sort_scan(&xs);\n    println!(\"sort+scan: distinct={distinct} scan_steps={scan_steps} (linear after an O(n log n) sort)\");\n}"
       },
       "questions": [
         {
@@ -200,8 +128,7 @@ fn main() {
         "Criterion baselines are stored in CI, and regressions above an agreed threshold fail the build."
       ],
       "crates": [
-        "criterion",
-        "std"
+        "criterion"
       ],
       "github": [
         {
@@ -262,34 +189,7 @@ fn main() {
             "Removing duplicates or a value from a sorted array does not need a second allocation. Keep a read index that scans every element and a write index that marks the end of the answer. The invariant is that xs[..write] is always the compacted prefix; when xs[read] belongs in the answer, copy it to xs[write] and advance both. Reads always run ahead of writes, so no data is overwritten before it is examined.",
             "The loop is O(n) time and O(1) extra space, and it works on &mut [T] with no allocation at all. The same shape solves move-zeroes, remove-element, and the merge step of merge sort when you write from the back. The invariant is the part worth memorising: once you can state what the prefix contains, the index updates follow, and off-by-one bugs stop being guesswork."
           ],
-          "code": `/// Remove duplicates from a sorted slice in place; returns the new logical length.
-pub fn dedup_sorted(xs: &mut [i64]) -> usize {
-    if xs.is_empty() {
-        return 0;
-    }
-    let mut write = 1;
-    for read in 1..xs.len() {
-        if xs[read] != xs[write - 1] {
-            xs[write] = xs[read];
-            write += 1;
-        }
-    }
-    write
-}
-
-/// Move every zero to the end while preserving the order of non-zero values.
-pub fn move_zeroes(xs: &mut [i64]) {
-    let mut write = 0;
-    for read in 0..xs.len() {
-        if xs[read] != 0 {
-            xs[write] = xs[read];
-            write += 1;
-        }
-    }
-    for slot in &mut xs[write..] {
-        *slot = 0;
-    }
-}`,
+          "code": "/// Remove duplicates from a sorted slice in place; returns the new logical length.\npub fn dedup_sorted(xs: &mut [i64]) -> usize {\n    if xs.is_empty() {\n        return 0;\n    }\n    let mut write = 1;\n    for read in 1..xs.len() {\n        if xs[read] != xs[write - 1] {\n            xs[write] = xs[read];\n            write += 1;\n        }\n    }\n    write\n}\n\n/// Move every zero to the end while preserving the order of non-zero values.\npub fn move_zeroes(xs: &mut [i64]) {\n    let mut write = 0;\n    for read in 0..xs.len() {\n        if xs[read] != 0 {\n            xs[write] = xs[read];\n            write += 1;\n        }\n    }\n    for slot in &mut xs[write..] {\n        *slot = 0;\n    }\n}",
           "tip": "Write the invariant as a comment before the loop. If you cannot state it in one sentence, the indices are doing too much."
         },
         {
@@ -298,29 +198,7 @@ pub fn move_zeroes(xs: &mut [i64]) {
             "When the input has many equal keys, two-way partitioning degrades badly: quicksort on an array of identical values becomes quadratic. Dijkstra's Dutch national flag partitions into less-than, equal, and greater in one pass with three indices, which is why production quicksorts switch to three-way partitioning on duplicate-heavy data. Rust's sort handles this internally, but you meet the same shape in bucket problems and in streaming classification.",
             "The loop maintains [0, lt) < pivot, [lt, i) == pivot, and (gt, len) > pivot. Elements equal to the pivot are simply skipped, which is what keeps them out of later recursive calls. The cost is one comparison per element and at most one swap, so O(n) time and O(1) space. Watch the greater-than branch: you swap an unexamined element into position i and must not advance i."
           ],
-          "code": `use std::cmp::Ordering;
-
-/// Dutch national flag: [0, lt) < pivot, [lt, i) == pivot, (gt, len) > pivot.
-pub fn three_way_partition(xs: &mut [i64], pivot: i64) {
-    let mut lt = 0usize;
-    let mut i = 0usize;
-    let mut gt = xs.len();
-
-    while i < gt {
-        match xs[i].cmp(&pivot) {
-            Ordering::Less => {
-                xs.swap(lt, i);
-                lt += 1;
-                i += 1;
-            }
-            Ordering::Equal => i += 1,
-            Ordering::Greater => {
-                gt -= 1;
-                xs.swap(i, gt); // the swapped-in element is unexamined: do not advance i
-            }
-        }
-    }
-}`,
+          "code": "use std::cmp::Ordering;\n\n/// Dutch national flag: [0, lt) < pivot, [lt, i) == pivot, (gt, len) > pivot.\npub fn three_way_partition(xs: &mut [i64], pivot: i64) {\n    let mut lt = 0usize;\n    let mut i = 0usize;\n    let mut gt = xs.len();\n\n    while i < gt {\n        match xs[i].cmp(&pivot) {\n            Ordering::Less => {\n                xs.swap(lt, i);\n                lt += 1;\n                i += 1;\n            }\n            Ordering::Equal => i += 1,\n            Ordering::Greater => {\n                gt -= 1;\n                xs.swap(i, gt); // the swapped-in element is unexamined: do not advance i\n            }\n        }\n    }\n}",
           "tip": "After the loop, lt is the count of elements below the pivot and gt is the start of the greater region; both are bounds you can assert in tests."
         },
         {
@@ -340,54 +218,7 @@ pub fn three_way_partition(xs: &mut [i64], pivot: i64) {
         "prompt": "Implement `compress(xs: &mut [i32], keep: impl Fn(i32) -> bool) -> usize`: keep the elements that satisfy the predicate, preserve their order, write them into the front of the slice, and return the new length. Then merge two sorted slices into one buffer by writing from the back so nothing is overwritten.",
         "starter": "pub fn compress(xs: &mut [i32], keep: impl Fn(i32) -> bool) -> usize {\n    // read scans all elements, write marks the end of the kept prefix\n    todo!()\n}\n\npub fn merge_from_back(a: &[i32], b: &[i32], out: &mut [i32]) {\n    // out.len() == a.len() + b.len(); fill from the last index backwards\n    todo!()\n}",
         "hint": "In compress, increment write only when keep(xs[read]) is true. In merge_from_back, compare a[i] and b[j], place the larger at out[k], and decrement the corresponding index; copy the remainder when one side runs out.",
-        "solution": `pub fn compress(xs: &mut [i32], keep: impl Fn(i32) -> bool) -> usize {
-    let mut write = 0usize;
-    for read in 0..xs.len() {
-        if keep(xs[read]) {
-            xs[write] = xs[read];
-            write += 1;
-        }
-    }
-    write
-}
-
-pub fn merge_from_back(a: &[i32], b: &[i32], out: &mut [i32]) {
-    assert_eq!(out.len(), a.len() + b.len());
-    let (mut i, mut j, mut k) = (a.len(), b.len(), out.len());
-    while i > 0 && j > 0 {
-        k -= 1;
-        if a[i - 1] > b[j - 1] {
-            out[k] = a[i - 1];
-            i -= 1;
-        } else {
-            out[k] = b[j - 1];
-            j -= 1;
-        }
-    }
-    while i > 0 {
-        k -= 1;
-        out[k] = a[i - 1];
-        i -= 1;
-    }
-    while j > 0 {
-        k -= 1;
-        out[k] = b[j - 1];
-        j -= 1;
-    }
-}
-
-fn main() {
-    let mut xs = [0, 1, 0, 2, 3, 0, 4];
-    let n = compress(&mut xs, |x| x != 0);
-    assert_eq!(&xs[..n], &[1, 2, 3, 4]);
-
-    let a = [1, 4, 9];
-    let b = [2, 3, 10, 11];
-    let mut out = [0; 7];
-    merge_from_back(&a, &b, &mut out);
-    assert_eq!(out, [1, 2, 3, 4, 9, 10, 11]);
-    println!("ok");
-}`
+        "solution": "pub fn compress(xs: &mut [i32], keep: impl Fn(i32) -> bool) -> usize {\n    let mut write = 0usize;\n    for read in 0..xs.len() {\n        if keep(xs[read]) {\n            xs[write] = xs[read];\n            write += 1;\n        }\n    }\n    write\n}\n\npub fn merge_from_back(a: &[i32], b: &[i32], out: &mut [i32]) {\n    assert_eq!(out.len(), a.len() + b.len());\n    let (mut i, mut j, mut k) = (a.len(), b.len(), out.len());\n    while i > 0 && j > 0 {\n        k -= 1;\n        if a[i - 1] > b[j - 1] {\n            out[k] = a[i - 1];\n            i -= 1;\n        } else {\n            out[k] = b[j - 1];\n            j -= 1;\n        }\n    }\n    while i > 0 {\n        k -= 1;\n        out[k] = a[i - 1];\n        i -= 1;\n    }\n    while j > 0 {\n        k -= 1;\n        out[k] = b[j - 1];\n        j -= 1;\n    }\n}\n\nfn main() {\n    let mut xs = [0, 1, 0, 2, 3, 0, 4];\n    let n = compress(&mut xs, |x| x != 0);\n    assert_eq!(&xs[..n], &[1, 2, 3, 4]);\n\n    let a = [1, 4, 9];\n    let b = [2, 3, 10, 11];\n    let mut out = [0; 7];\n    merge_from_back(&a, &b, &mut out);\n    assert_eq!(out, [1, 2, 3, 4, 9, 10, 11]);\n    println!(\"ok\");\n}"
       },
       "questions": [
         {
@@ -437,7 +268,6 @@ fn main() {
         "Any function that may reallocate takes &mut Vec and says so in its doc comment."
       ],
       "crates": [
-        "std",
         "smallvec",
         "criterion"
       ],
@@ -488,38 +318,7 @@ fn main() {
             "The pattern if map.contains_key(k) { map.get_mut(k) } else { map.insert(k, v) } hashes the key twice and probes twice. HashMap::entry hashes once and hands back an Entry that is either occupied or vacant, so the insert-or-update decision happens after a single probe. It reads better and it is measurably faster on string keys, where each hash walks the bytes.",
             "Entry also encodes the two common shapes: or_insert for a default value, or_insert_with when the default is expensive to build, and and_modify before or_insert to update in place. For counters, *map.entry(key).or_insert(0) += 1 is the canonical form. The one thing entry cannot do is return a reference to a different map while the entry borrow is alive, which is why grouped aggregation often needs a two-phase pass."
           ],
-          "code": `use std::collections::HashMap;
-
-/// Two-sum in one pass. Returns indices (i, j) with xs[i] + xs[j] == target.
-pub fn two_sum(xs: &[i64], target: i64) -> Option<(usize, usize)> {
-    let mut seen: HashMap<i64, usize> = HashMap::with_capacity(xs.len());
-    for (j, &x) in xs.iter().enumerate() {
-        if let Some(&i) = seen.get(&(target - x)) {
-            return Some((i, j));
-        }
-        seen.insert(x, j);
-    }
-    None
-}
-
-/// Word frequency without a second probe per word.
-pub fn frequencies<'a>(words: &[&'a str]) -> HashMap<&'a str, u32> {
-    let mut counts: HashMap<&str, u32> = HashMap::with_capacity(words.len());
-    for &word in words {
-        *counts.entry(word).or_insert(0) += 1;
-    }
-    counts
-}
-
-/// Group by the first byte, appending indices, in a single pass.
-pub fn bucket_by_first_byte(words: &[&str]) -> HashMap<u8, Vec<usize>> {
-    let mut buckets: HashMap<u8, Vec<usize>> = HashMap::new();
-    for (i, word) in words.iter().enumerate() {
-        let key = word.as_bytes().first().copied().unwrap_or(b'\\0');
-        buckets.entry(key).or_default().push(i);
-    }
-    buckets
-}`,
+          "code": "use std::collections::HashMap;\n\n/// Two-sum in one pass. Returns indices (i, j) with xs[i] + xs[j] == target.\npub fn two_sum(xs: &[i64], target: i64) -> Option<(usize, usize)> {\n    let mut seen: HashMap<i64, usize> = HashMap::with_capacity(xs.len());\n    for (j, &x) in xs.iter().enumerate() {\n        if let Some(&i) = seen.get(&(target - x)) {\n            return Some((i, j));\n        }\n        seen.insert(x, j);\n    }\n    None\n}\n\n/// Word frequency without a second probe per word.\npub fn frequencies<'a>(words: &[&'a str]) -> HashMap<&'a str, u32> {\n    let mut counts: HashMap<&str, u32> = HashMap::with_capacity(words.len());\n    for &word in words {\n        *counts.entry(word).or_insert(0) += 1;\n    }\n    counts\n}\n\n/// Group by the first byte, appending indices, in a single pass.\npub fn bucket_by_first_byte(words: &[&str]) -> HashMap<u8, Vec<usize>> {\n    let mut buckets: HashMap<u8, Vec<usize>> = HashMap::new();\n    for (i, word) in words.iter().enumerate() {\n        let key = word.as_bytes().first().copied().unwrap_or(b'\\0');\n        buckets.entry(key).or_default().push(i);\n    }\n    buckets\n}",
           "tip": "with_capacity(n) avoids several rehashes when n is known. It is the cheapest optimisation in most map-heavy code."
         },
         {
@@ -541,27 +340,7 @@ pub fn bucket_by_first_byte(words: &[&str]) -> HashMap<u8, Vec<usize>> {
             "Open-addressed tables keep all entries in one array and resolve collisions by probing adjacent slots. SwissTable-style designs probe groups of sixteen slots with one SIMD comparison, which is why a lookup is a handful of instructions when the table is not full. The price is that performance falls off a cliff as the table fills: at a load factor near 7/8 the probe sequences lengthen and the table must grow and rehash everything.",
             "Deletion in open addressing leaves tombstones or requires backward-shift cleanup, which is why repeated insert/remove cycles can degrade a table that never grows. Rust's HashMap handles this internally, but the practical consequences remain: iteration order is unspecified and changes on rehash, so never depend on it; and a map that had a million entries and now holds ten still occupies the peak capacity until you call shrink_to_fit."
           ],
-          "code": `use std::collections::HashMap;
-
-/// Counting with a pre-sized table and no per-iteration allocation.
-pub fn histogram(values: &[u32]) -> HashMap<u32, u64> {
-    let mut counts = HashMap::with_capacity(values.len());
-    for &v in values {
-        *counts.entry(v).or_insert(0) += 1;
-    }
-    if counts.capacity() > counts.len() * 4 {
-        counts.shrink_to_fit(); // return memory after a burst
-    }
-    counts
-}
-
-/// Ordered results: sort the keys once instead of trusting map iteration order.
-pub fn top_k(counts: &HashMap<u32, u64>, k: usize) -> Vec<(u32, u64)> {
-    let mut pairs: Vec<(u32, u64)> = counts.iter().map(|(&k, &v)| (k, v)).collect();
-    pairs.sort_unstable_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
-    pairs.truncate(k);
-    pairs
-}`,
+          "code": "use std::collections::HashMap;\n\n/// Counting with a pre-sized table and no per-iteration allocation.\npub fn histogram(values: &[u32]) -> HashMap<u32, u64> {\n    let mut counts = HashMap::with_capacity(values.len());\n    for &v in values {\n        *counts.entry(v).or_insert(0) += 1;\n    }\n    if counts.capacity() > counts.len() * 4 {\n        counts.shrink_to_fit(); // return memory after a burst\n    }\n    counts\n}\n\n/// Ordered results: sort the keys once instead of trusting map iteration order.\npub fn top_k(counts: &HashMap<u32, u64>, k: usize) -> Vec<(u32, u64)> {\n    let mut pairs: Vec<(u32, u64)> = counts.iter().map(|(&k, &v)| (k, v)).collect();\n    pairs.sort_unstable_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));\n    pairs.truncate(k);\n    pairs\n}",
           "tip": "Iteration order is a hash detail, not an API guarantee. Sort explicitly whenever output order is observable."
         },
         {
@@ -576,36 +355,7 @@ pub fn top_k(counts: &HashMap<u32, u64>, k: usize) -> Vec<(u32, u64)> {
         "prompt": "Implement `first_unique(words: &[&str]) -> Option<usize>` returning the index of the first word that occurs exactly once. Do it in two passes over a single map, then again in one pass using an insertion-ordered structure, and explain the trade-off.",
         "starter": "use std::collections::HashMap;\n\npub fn first_unique(words: &[&str]) -> Option<usize> {\n    // pass 1: count; pass 2: find the first word whose count is 1\n    todo!()\n}\n\npub fn first_unique_ordered(words: &[&str]) -> Option<usize> {\n    // one pass, preserving first-seen order\n    todo!()\n}",
         "hint": "The two-pass version needs counts: HashMap<&str, u32>, then a scan. The ordered version needs the index of the first occurrence plus a count; indexmap::IndexMap<&str, (usize, u32)> keeps both and iterates in insertion order.",
-        "solution": `use std::collections::HashMap;
-
-pub fn first_unique(words: &[&str]) -> Option<usize> {
-    let mut counts: HashMap<&str, u32> = HashMap::with_capacity(words.len());
-    for &word in words {
-        *counts.entry(word).or_insert(0) += 1;
-    }
-    words.iter().position(|word| counts[word] == 1)
-}
-
-/// Same answer, one pass plus one ordered walk; useful when the input is a stream.
-pub fn first_unique_ordered(words: &[&str]) -> Option<usize> {
-    let mut seen: HashMap<&str, (usize, u32)> = HashMap::with_capacity(words.len());
-    for (i, &word) in words.iter().enumerate() {
-        seen.entry(word)
-            .and_modify(|(_, count)| *count += 1)
-            .or_insert((i, 1));
-    }
-    seen.values()
-        .filter(|(_, count)| *count == 1)
-        .map(|(i, _)| *i)
-        .min()
-}
-
-fn main() {
-    let words = ["rust", "go", "rust", "zig", "go"];
-    assert_eq!(first_unique(&words), Some(3));
-    assert_eq!(first_unique_ordered(&words), Some(3));
-    println!("ok");
-}`
+        "solution": "use std::collections::HashMap;\n\npub fn first_unique(words: &[&str]) -> Option<usize> {\n    let mut counts: HashMap<&str, u32> = HashMap::with_capacity(words.len());\n    for &word in words {\n        *counts.entry(word).or_insert(0) += 1;\n    }\n    words.iter().position(|word| counts[word] == 1)\n}\n\n/// Same answer, one pass plus one ordered walk; useful when the input is a stream.\npub fn first_unique_ordered(words: &[&str]) -> Option<usize> {\n    let mut seen: HashMap<&str, (usize, u32)> = HashMap::with_capacity(words.len());\n    for (i, &word) in words.iter().enumerate() {\n        seen.entry(word)\n            .and_modify(|(_, count)| *count += 1)\n            .or_insert((i, 1));\n    }\n    seen.values()\n        .filter(|(_, count)| *count == 1)\n        .map(|(i, _)| *i)\n        .min()\n}\n\nfn main() {\n    let words = [\"rust\", \"go\", \"rust\", \"zig\", \"go\"];\n    assert_eq!(first_unique(&words), Some(3));\n    assert_eq!(first_unique_ordered(&words), Some(3));\n    println!(\"ok\");\n}"
       },
       "questions": [
         {
@@ -656,8 +406,7 @@ fn main() {
       ],
       "crates": [
         "hashbrown",
-        "rustc-hash",
-        "std"
+        "rustc-hash"
       ],
       "github": [
         {
@@ -719,25 +468,7 @@ fn main() {
             "sort_by_key computes the key on every comparison, which is fine when the key is a field read and disastrous when it parses a string or allocates. sort_by_cached_key computes each key once into a temporary array, sorts by those keys, and moves the originals; it allocates O(n) memory but turns an O(n log n) key computations problem into O(n).",
             "The same idea applies to comparisons. Building a sort key as a tuple (priority, deadline, id) moves the tie-breaking into the comparison itself and makes the ordering total, which removes the need for a stable sort in most scheduling code. A total order also makes the result deterministic, so tests stop flaking when the input order changes."
           ],
-          "code": `use std::cmp::Reverse;
-
-#[derive(Debug, Clone)]
-pub struct Job {
-    pub id: u32,
-    pub priority: u8,
-    pub deadline: u64,
-    pub name: String,
-}
-
-/// Highest priority first, then earliest deadline, then id: a total order.
-pub fn schedule_order(jobs: &mut [Job]) {
-    jobs.sort_unstable_by_key(|job| (Reverse(job.priority), job.deadline, job.id));
-}
-
-/// Expensive key computed once instead of on every comparison.
-pub fn by_normalised_name(jobs: &mut [Job]) {
-    jobs.sort_by_cached_key(|job| job.name.to_lowercase());
-}`,
+          "code": "use std::cmp::Reverse;\n\n#[derive(Debug, Clone)]\npub struct Job {\n    pub id: u32,\n    pub priority: u8,\n    pub deadline: u64,\n    pub name: String,\n}\n\n/// Highest priority first, then earliest deadline, then id: a total order.\npub fn schedule_order(jobs: &mut [Job]) {\n    jobs.sort_unstable_by_key(|job| (Reverse(job.priority), job.deadline, job.id));\n}\n\n/// Expensive key computed once instead of on every comparison.\npub fn by_normalised_name(jobs: &mut [Job]) {\n    jobs.sort_by_cached_key(|job| job.name.to_lowercase());\n}",
           "tip": "Sorting by a tuple gives you a total order and deterministic output; add the unique id as the last element."
         },
         {
@@ -746,28 +477,7 @@ pub fn by_normalised_name(jobs: &mut [Job]) {
             "Comparison sorting cannot beat O(n log n) in the general case, but many real keys are small integers: ages, ports, bytes, bucket indices, days since epoch. Counting sort runs in O(n + k) for keys in 0..k, and radix sort applies it digit by digit for wider keys. Both are stable when the scatter pass processes input in order, which makes them usable as the inner loop of a stable multi-key sort.",
             "The trade-off is memory and key range. A counting array of 65,536 u32 counters is 256 KB, which is larger than L2 on some machines and will lose to comparison sort on a thousand elements. Radix sort with 8-bit digits uses four passes for u32 and is cache-friendly; it wins on millions of integers and loses on a few thousand records with expensive-to-extract keys."
           ],
-          "code": `/// Stable counting sort for u16 values. O(n + 65536) time, O(n + 65536) space.
-pub fn counting_sort(xs: &[u16]) -> Vec<u16> {
-    let mut next_slot = vec![0u32; u16::MAX as usize + 1];
-    for &x in xs {
-        next_slot[x as usize] += 1;
-    }
-
-    let mut start = 0u32;
-    for slot in next_slot.iter_mut() {
-        let count = *slot;
-        *slot = start;
-        start += count;
-    }
-
-    let mut out = vec![0u16; xs.len()];
-    for &x in xs {
-        let slot = &mut next_slot[x as usize];
-        out[*slot as usize] = x;
-        *slot += 1;
-    }
-    out
-}`,
+          "code": "/// Stable counting sort for u16 values. O(n + 65536) time, O(n + 65536) space.\npub fn counting_sort(xs: &[u16]) -> Vec<u16> {\n    let mut next_slot = vec![0u32; u16::MAX as usize + 1];\n    for &x in xs {\n        next_slot[x as usize] += 1;\n    }\n\n    let mut start = 0u32;\n    for slot in next_slot.iter_mut() {\n        let count = *slot;\n        *slot = start;\n        start += count;\n    }\n\n    let mut out = vec![0u16; xs.len()];\n    for &x in xs {\n        let slot = &mut next_slot[x as usize];\n        out[*slot as usize] = x;\n        *slot += 1;\n    }\n    out\n}",
           "tip": "Count the distinct keys before reaching for a counting sort: if k is much larger than n, the O(k) initialisation dominates."
         },
         {
@@ -776,32 +486,7 @@ pub fn counting_sort(xs: &[u16]) -> Vec<u16> {
             "rayon's par_sort_unstable splits the slice, sorts chunks in parallel, and merges them, giving close to linear speedup on large inputs on a multi-core machine. It needs T: Send and a rayon thread pool; below roughly a hundred thousand elements the split and merge overhead usually exceeds the gain, so keep a size threshold rather than parallelising every call site.",
             "Adversarial inputs are a real category, not a theoretical one. TimSort's worst case was shown to be worse than the claimed O(n log n) on crafted patterns, which is exactly the kind of bug that shows up as a slow request from one tenant. Rust's sort documents linear behaviour on sorted and reversed input, but you should still benchmark your data - shuffled, sorted, reversed, many duplicates - rather than a single random sample."
           ],
-          "code": `use rayon::prelude::*;
-
-/// Parallel sort with a cutoff: sequential below the threshold, parallel above it.
-pub fn sort_records(records: &mut [u64]) {
-    const PARALLEL_THRESHOLD: usize = 100_000;
-    if records.len() >= PARALLEL_THRESHOLD {
-        records.par_sort_unstable();
-    } else {
-        records.sort_unstable();
-    }
-}
-
-/// Four distributions every sort benchmark should include.
-pub fn distributions(n: usize) -> Vec<(&'static str, Vec<u64>)> {
-    let ascending: Vec<u64> = (0..n as u64).collect();
-    let mut descending = ascending.clone();
-    descending.reverse();
-    let shuffled: Vec<u64> = (0..n as u64).map(|i| i.wrapping_mul(6_364_136_223_846_793_005) >> 33).collect();
-    let duplicates: Vec<u64> = (0..n as u64).map(|i| i % 8).collect();
-    vec![
-        ("ascending", ascending),
-        ("descending", descending),
-        ("shuffled", shuffled),
-        ("duplicates", duplicates),
-    ]
-}`,
+          "code": "use rayon::prelude::*;\n\n/// Parallel sort with a cutoff: sequential below the threshold, parallel above it.\npub fn sort_records(records: &mut [u64]) {\n    const PARALLEL_THRESHOLD: usize = 100_000;\n    if records.len() >= PARALLEL_THRESHOLD {\n        records.par_sort_unstable();\n    } else {\n        records.sort_unstable();\n    }\n}\n\n/// Four distributions every sort benchmark should include.\npub fn distributions(n: usize) -> Vec<(&'static str, Vec<u64>)> {\n    let ascending: Vec<u64> = (0..n as u64).collect();\n    let mut descending = ascending.clone();\n    descending.reverse();\n    let shuffled: Vec<u64> = (0..n as u64).map(|i| i.wrapping_mul(6_364_136_223_846_793_005) >> 33).collect();\n    let duplicates: Vec<u64> = (0..n as u64).map(|i| i % 8).collect();\n    vec![\n        (\"ascending\", ascending),\n        (\"descending\", descending),\n        (\"shuffled\", shuffled),\n        (\"duplicates\", duplicates),\n    ]\n}",
           "tip": "Benchmark the sorted and reversed cases too: production data is often more ordered than the random generator you tested with."
         }
       ],
@@ -809,47 +494,7 @@ pub fn distributions(n: usize) -> Vec<(&'static str, Vec<u64>)> {
         "prompt": "Sort a slice of `Job` by (priority descending, deadline ascending, id ascending) without a stable sort, then rewrite the expensive-key version so the lowercased name is computed once. Add a test that proves the ordering is total by sorting the same set from two different initial permutations and comparing the results.",
         "starter": "use std::cmp::Reverse;\n\n#[derive(Debug, Clone, PartialEq, Eq)]\npub struct Job {\n    pub id: u32,\n    pub priority: u8,\n    pub deadline: u64,\n    pub name: String,\n}\n\npub fn schedule_order(jobs: &mut [Job]) {\n    // highest priority first, then earliest deadline, then smallest id\n    todo!()\n}\n\npub fn by_normalised_name(jobs: &mut [Job]) {\n    // compute each key once\n    todo!()\n}",
         "hint": "A tuple key of (Reverse(priority), deadline, id) is totally ordered, so sort_unstable_by_key is safe. For names use sort_by_cached_key and compare the lowercased form; it guarantees one allocation per element.",
-        "solution": `use std::cmp::Reverse;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Job {
-    pub id: u32,
-    pub priority: u8,
-    pub deadline: u64,
-    pub name: String,
-}
-
-pub fn schedule_order(jobs: &mut [Job]) {
-    jobs.sort_unstable_by_key(|job| (Reverse(job.priority), job.deadline, job.id));
-}
-
-pub fn by_normalised_name(jobs: &mut [Job]) {
-    jobs.sort_by_cached_key(|job| job.name.to_lowercase());
-}
-
-fn main() {
-    let make = |ids: [u32; 4]| -> Vec<Job> {
-        ids.iter()
-            .map(|&id| Job {
-                id,
-                priority: (id % 2) as u8,
-                deadline: 10 + u64::from(id % 3),
-                name: format!("Job-{id}"),
-            })
-            .collect()
-    };
-
-    let mut a = make([3, 1, 4, 2]);
-    let mut b = make([2, 4, 1, 3]);
-    schedule_order(&mut a);
-    schedule_order(&mut b);
-    let a_ids: Vec<u32> = a.iter().map(|j| j.id).collect();
-    let b_ids: Vec<u32> = b.iter().map(|j| j.id).collect();
-    assert_eq!(a_ids, b_ids, "a total order is independent of input permutation");
-
-    by_normalised_name(&mut a);
-    println!("{:?}", a.iter().map(|j| &j.name).collect::<Vec<_>>());
-}`
+        "solution": "use std::cmp::Reverse;\n\n#[derive(Debug, Clone, PartialEq, Eq)]\npub struct Job {\n    pub id: u32,\n    pub priority: u8,\n    pub deadline: u64,\n    pub name: String,\n}\n\npub fn schedule_order(jobs: &mut [Job]) {\n    jobs.sort_unstable_by_key(|job| (Reverse(job.priority), job.deadline, job.id));\n}\n\npub fn by_normalised_name(jobs: &mut [Job]) {\n    jobs.sort_by_cached_key(|job| job.name.to_lowercase());\n}\n\nfn main() {\n    let make = |ids: [u32; 4]| -> Vec<Job> {\n        ids.iter()\n            .map(|&id| Job {\n                id,\n                priority: (id % 2) as u8,\n                deadline: 10 + u64::from(id % 3),\n                name: format!(\"Job-{id}\"),\n            })\n            .collect()\n    };\n\n    let mut a = make([3, 1, 4, 2]);\n    let mut b = make([2, 4, 1, 3]);\n    schedule_order(&mut a);\n    schedule_order(&mut b);\n    let a_ids: Vec<u32> = a.iter().map(|j| j.id).collect();\n    let b_ids: Vec<u32> = b.iter().map(|j| j.id).collect();\n    assert_eq!(a_ids, b_ids, \"a total order is independent of input permutation\");\n\n    by_normalised_name(&mut a);\n    println!(\"{:?}\", a.iter().map(|j| &j.name).collect::<Vec<_>>());\n}"
       },
       "questions": [
         {
@@ -899,7 +544,6 @@ fn main() {
         "Float comparisons use total_cmp and the resulting order is documented."
       ],
       "crates": [
-        "std",
         "rayon",
         "criterion"
       ],
@@ -951,22 +595,7 @@ fn main() {
             "slice::binary_search returns Result<usize, usize>: the index of some matching element, or the insertion point if there is none. With duplicates, which matching element you get is unspecified, so using it to find the first occurrence is a bug that passes tests on unique data and fails in production. It is a membership test with an index attached.",
             "partition_point is the primitive you actually want. It takes a predicate that is false for a prefix and true for the rest, and returns the length of the false prefix - the first index where the predicate holds. Lower bound is partition_point(|x| *x < target) and upper bound is partition_point(|x| *x <= target). The difference between them is the duplicate count, and both are O(log n) with no allocation."
           ],
-          "code": `/// First index whose value is >= target.
-pub fn lower_bound(xs: &[i64], target: i64) -> usize {
-    xs.partition_point(|&x| x < target)
-}
-
-/// First index whose value is > target.
-pub fn upper_bound(xs: &[i64], target: i64) -> usize {
-    xs.partition_point(|&x| x <= target)
-}
-
-/// Number of occurrences of target in a sorted slice.
-pub fn count_occurrences(xs: &[i64], target: i64) -> usize {
-    let lo = lower_bound(xs, target);
-    let hi = upper_bound(xs, target);
-    if lo < hi { hi - lo } else { 0 }
-}`,
+          "code": "/// First index whose value is >= target.\npub fn lower_bound(xs: &[i64], target: i64) -> usize {\n    xs.partition_point(|&x| x < target)\n}\n\n/// First index whose value is > target.\npub fn upper_bound(xs: &[i64], target: i64) -> usize {\n    xs.partition_point(|&x| x <= target)\n}\n\n/// Number of occurrences of target in a sorted slice.\npub fn count_occurrences(xs: &[i64], target: i64) -> usize {\n    let lo = lower_bound(xs, target);\n    let hi = upper_bound(xs, target);\n    if lo < hi { hi - lo } else { 0 }\n}",
           "tip": "Predicate form removes the duplicated search: any monotone condition can be expressed as a closure, and partition_point handles the loop."
         },
         {
@@ -975,28 +604,7 @@ pub fn count_occurrences(xs: &[i64], target: i64) -> usize {
             "Writing the loop by hand is still worth learning because the answer-space variant has no slice to call partition_point on. Use a half-open interval [lo, hi) with the invariants: everything before lo is false, everything from hi onwards is true, and the answer is lo when the loop ends. The loop condition is lo < hi, and the update is always hi = mid or lo = mid + 1, so the interval strictly shrinks.",
             "Compute mid as lo + (hi - lo) / 2, not (lo + hi) / 2. For usize indices near the top of the address space the sum overflows, and in release mode that wraps into a wrong index rather than panicking. The subtraction form cannot overflow because hi >= lo. This is the same fix that took years to land in the Java standard library, and it costs nothing."
           ],
-          "code": `/// Generic lower bound: first index in 0..=len where pred is true.
-/// pred must be monotone: false...false true...true.
-pub fn first_true(mut lo: usize, mut hi: usize, pred: impl Fn(usize) -> bool) -> usize {
-    while lo < hi {
-        let mid = lo + (hi - lo) / 2;
-        if pred(mid) {
-            hi = mid;
-        } else {
-            lo = mid + 1;
-        }
-    }
-    lo
-}
-
-fn main() {
-    let xs = [1, 3, 3, 3, 7, 9];
-    let lo = first_true(0, xs.len(), |i| xs[i] >= 3);
-    let hi = first_true(0, xs.len(), |i| xs[i] > 3);
-    assert_eq!((lo, hi), (1, 4));
-    assert_eq!(hi - lo, 3);
-    println!("3 occurs {hi_minus_lo} times", hi_minus_lo = hi - lo);
-}`
+          "code": "/// Generic lower bound: first index in 0..=len where pred is true.\n/// pred must be monotone: false...false true...true.\npub fn first_true(mut lo: usize, mut hi: usize, pred: impl Fn(usize) -> bool) -> usize {\n    while lo < hi {\n        let mid = lo + (hi - lo) / 2;\n        if pred(mid) {\n            hi = mid;\n        } else {\n            lo = mid + 1;\n        }\n    }\n    lo\n}\n\nfn main() {\n    let xs = [1, 3, 3, 3, 7, 9];\n    let lo = first_true(0, xs.len(), |i| xs[i] >= 3);\n    let hi = first_true(0, xs.len(), |i| xs[i] > 3);\n    assert_eq!((lo, hi), (1, 4));\n    assert_eq!(hi - lo, 3);\n    println!(\"3 occurs {hi_minus_lo} times\", hi_minus_lo = hi - lo);\n}"
         },
         {
           "h": "Binary search on the answer",
@@ -1004,37 +612,7 @@ fn main() {
             "Many problems ask for the smallest capacity, speed, or timeout that makes something feasible. If feasibility is monotone - once a capacity works, every larger one also works - you can binary search the answer space directly. The predicate is a full simulation that runs in O(n), so the total is O(n log range), which is far better than enumerating candidates.",
             "The two failure modes are a predicate that is not actually monotone (often because of an off-by-one in the simulation) and a search range that excludes the answer. Set lo to a value known infeasible and hi to a value known feasible, then prove both by running the predicate once on each. If hi is infeasible, the loop returns a wrong answer rather than an error, so assert the boundary before searching."
           ],
-          "code": `/// Minimum ship capacity to move all weights within the given number of days.
-/// Feasibility is monotone in capacity, so binary search the capacity space.
-pub fn ship_within_days(weights: &[u32], days: u32) -> u32 {
-    let feasible = |capacity: u32| -> bool {
-        let mut used_days = 1u32;
-        let mut load = 0u32;
-        for &w in weights {
-            if load + w > capacity {
-                used_days += 1;
-                load = w;
-            } else {
-                load += w;
-            }
-        }
-        used_days <= days
-    };
-
-    let mut lo = *weights.iter().max().expect("non-empty input"); // single heaviest item
-    let mut hi: u32 = weights.iter().sum(); // one day, everything at once
-    assert!(feasible(hi), "hi must be feasible or the search is unbounded");
-
-    while lo < hi {
-        let mid = lo + (hi - lo) / 2;
-        if feasible(mid) {
-            hi = mid;
-        } else {
-            lo = mid + 1;
-        }
-    }
-    lo
-}`,
+          "code": "/// Minimum ship capacity to move all weights within the given number of days.\n/// Feasibility is monotone in capacity, so binary search the capacity space.\npub fn ship_within_days(weights: &[u32], days: u32) -> u32 {\n    let feasible = |capacity: u32| -> bool {\n        let mut used_days = 1u32;\n        let mut load = 0u32;\n        for &w in weights {\n            if load + w > capacity {\n                used_days += 1;\n                load = w;\n            } else {\n                load += w;\n            }\n        }\n        used_days <= days\n    };\n\n    let mut lo = *weights.iter().max().expect(\"non-empty input\"); // single heaviest item\n    let mut hi: u32 = weights.iter().sum(); // one day, everything at once\n    assert!(feasible(hi), \"hi must be feasible or the search is unbounded\");\n\n    while lo < hi {\n        let mid = lo + (hi - lo) / 2;\n        if feasible(mid) {\n            hi = mid;\n        } else {\n            lo = mid + 1;\n        }\n    }\n    lo\n}",
           "tip": "Assert that hi is feasible before the loop. An infeasible upper bound silently returns hi, which looks like a plausible capacity."
         },
         {
@@ -1054,51 +632,7 @@ pub fn ship_within_days(weights: &[u32], days: u32) -> u32 {
         "prompt": "Implement `min_capacity(weights: &[u32], days: u32) -> u32` for the ship-within-days problem, then add `first_at_least(xs: &[i64], target: i64) -> Option<usize>` that returns None when every element is smaller. Prove the predicate boundaries with assertions.",
         "starter": "pub fn min_capacity(weights: &[u32], days: u32) -> u32 {\n    // binary search the capacity; feasibility is monotone\n    todo!()\n}\n\npub fn first_at_least(xs: &[i64], target: i64) -> Option<usize> {\n    // partition_point plus a bounds check\n    todo!()\n}",
         "hint": "lo starts at the heaviest single item (infeasible below it) and hi at the total weight (always feasible). For first_at_least, compute idx = xs.partition_point(|&x| x < target) and return None when idx == xs.len().",
-        "solution": `pub fn min_capacity(weights: &[u32], days: u32) -> u32 {
-    let feasible = |capacity: u32| -> bool {
-        let mut used_days = 1u32;
-        let mut load = 0u32;
-        for &w in weights {
-            if load + w > capacity {
-                used_days += 1;
-                load = w;
-            } else {
-                load += w;
-            }
-        }
-        used_days <= days
-    };
-
-    let mut lo = *weights.iter().max().expect("non-empty input");
-    let mut hi = weights.iter().sum::<u32>();
-    assert!(feasible(hi));
-
-    while lo < hi {
-        let mid = lo + (hi - lo) / 2;
-        if feasible(mid) {
-            hi = mid;
-        } else {
-            lo = mid + 1;
-        }
-    }
-    lo
-}
-
-pub fn first_at_least(xs: &[i64], target: i64) -> Option<usize> {
-    let idx = xs.partition_point(|&x| x < target);
-    (idx < xs.len()).then_some(idx)
-}
-
-fn main() {
-    let weights = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-    assert_eq!(min_capacity(&weights, 5), 15);
-    assert_eq!(min_capacity(&weights, 1), 55);
-
-    let xs = [2, 4, 4, 4, 9];
-    assert_eq!(first_at_least(&xs, 4), Some(1));
-    assert_eq!(first_at_least(&xs, 10), None);
-    println!("ok");
-}`
+        "solution": "pub fn min_capacity(weights: &[u32], days: u32) -> u32 {\n    let feasible = |capacity: u32| -> bool {\n        let mut used_days = 1u32;\n        let mut load = 0u32;\n        for &w in weights {\n            if load + w > capacity {\n                used_days += 1;\n                load = w;\n            } else {\n                load += w;\n            }\n        }\n        used_days <= days\n    };\n\n    let mut lo = *weights.iter().max().expect(\"non-empty input\");\n    let mut hi = weights.iter().sum::<u32>();\n    assert!(feasible(hi));\n\n    while lo < hi {\n        let mid = lo + (hi - lo) / 2;\n        if feasible(mid) {\n            hi = mid;\n        } else {\n            lo = mid + 1;\n        }\n    }\n    lo\n}\n\npub fn first_at_least(xs: &[i64], target: i64) -> Option<usize> {\n    let idx = xs.partition_point(|&x| x < target);\n    (idx < xs.len()).then_some(idx)\n}\n\nfn main() {\n    let weights = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];\n    assert_eq!(min_capacity(&weights, 5), 15);\n    assert_eq!(min_capacity(&weights, 1), 55);\n\n    let xs = [2, 4, 4, 4, 9];\n    assert_eq!(first_at_least(&xs, 4), Some(1));\n    assert_eq!(first_at_least(&xs, 10), None);\n    println!(\"ok\");\n}"
       },
       "questions": [
         {
@@ -1148,7 +682,6 @@ fn main() {
         "Binary search over untrusted or mutated data re-validates the sorted invariant first."
       ],
       "crates": [
-        "std",
         "criterion"
       ],
       "github": [
@@ -1207,42 +740,7 @@ fn main() {
             "The next-greater-element problem asks, for every position, where the next larger value sits. The naive scan is O(n^2). The monotonic stack keeps indices whose values are still waiting for a greater element, in decreasing order, and pops each one when a larger value arrives. Every index is pushed once and popped at most once, so the whole pass is O(n) with O(n) worst-case space.",
             "The stack is not storing a subsequence for its own sake; it encodes a promise: everything on the stack is unresolved, and the values decrease from bottom to top. That invariant is what makes the pop loop correct. The same shape solves daily temperatures, stock span, and the largest rectangle in a histogram, where the stack holds bars in increasing height and a shorter bar closes them."
           ],
-          "code": `/// For each index, the index of the next strictly greater value.
-pub fn next_greater(xs: &[i64]) -> Vec<Option<usize>> {
-    let mut out = vec![None; xs.len()];
-    let mut stack: Vec<usize> = Vec::with_capacity(xs.len());
-
-    for i in 0..xs.len() {
-        while let Some(&top) = stack.last() {
-            if xs[top] < xs[i] {
-                out[top] = Some(i);
-                stack.pop();
-            } else {
-                break;
-            }
-        }
-        stack.push(i);
-    }
-    out
-}
-
-/// Days until a warmer temperature, the same algorithm with a different output.
-pub fn daily_temperatures(temps: &[i32]) -> Vec<i32> {
-    let mut wait = vec![0i32; temps.len()];
-    let mut stack: Vec<usize> = Vec::new();
-    for i in 0..temps.len() {
-        while let Some(&top) = stack.last() {
-            if temps[top] < temps[i] {
-                wait[top] = (i - top) as i32;
-                stack.pop();
-            } else {
-                break;
-            }
-        }
-        stack.push(i);
-    }
-    wait
-}`,
+          "code": "/// For each index, the index of the next strictly greater value.\npub fn next_greater(xs: &[i64]) -> Vec<Option<usize>> {\n    let mut out = vec![None; xs.len()];\n    let mut stack: Vec<usize> = Vec::with_capacity(xs.len());\n\n    for i in 0..xs.len() {\n        while let Some(&top) = stack.last() {\n            if xs[top] < xs[i] {\n                out[top] = Some(i);\n                stack.pop();\n            } else {\n                break;\n            }\n        }\n        stack.push(i);\n    }\n    out\n}\n\n/// Days until a warmer temperature, the same algorithm with a different output.\npub fn daily_temperatures(temps: &[i32]) -> Vec<i32> {\n    let mut wait = vec![0i32; temps.len()];\n    let mut stack: Vec<usize> = Vec::new();\n    for i in 0..temps.len() {\n        while let Some(&top) = stack.last() {\n            if temps[top] < temps[i] {\n                wait[top] = (i - top) as i32;\n                stack.pop();\n            } else {\n                break;\n            }\n        }\n        stack.push(i);\n    }\n    wait\n}",
           "tip": "If the inner while loop can pop each element only once, the total work is linear no matter how the loop looks."
         },
         {
@@ -1251,31 +749,7 @@ pub fn daily_temperatures(temps: &[i32]) -> Vec<i32> {
             "A monotonic deque keeps candidate maxima for a sliding window in decreasing order, dropping from the back anything the new element dominates and from the front anything that has left the window. Each index enters and leaves once, so the window maximum over n elements costs O(n) instead of O(nk). This is the standard fix for rate limiting, rolling statistics, and streaming aggregates.",
             "VecDeque is also the right container for 0-1 BFS, where edges cost zero or one: push a zero-cost neighbour to the front and a one-cost neighbour to the back, and the deque stays sorted by distance without a heap. Both uses rely on the same discipline as the monotonic stack - state an invariant about the container's contents, then make every operation preserve it."
           ],
-          "code": `use std::collections::VecDeque;
-
-/// Maximum of every window of size k. O(n) time, O(k) space.
-pub fn max_sliding_window(xs: &[i32], k: usize) -> Vec<i32> {
-    assert!(k > 0 && k <= xs.len());
-    let mut deque: VecDeque<usize> = VecDeque::with_capacity(k);
-    let mut out = Vec::with_capacity(xs.len() - k + 1);
-
-    for i in 0..xs.len() {
-        while deque.back().is_some_and(|&j| xs[j] <= xs[i]) {
-            deque.pop_back();
-        }
-        deque.push_back(i);
-
-        if let Some(&front) = deque.front() {
-            if front + k == i + 1 {
-                deque.pop_front();
-            }
-        }
-        if i + 1 >= k {
-            out.push(xs[*deque.front().expect("window is non-empty")]);
-        }
-    }
-    out
-}`,
+          "code": "use std::collections::VecDeque;\n\n/// Maximum of every window of size k. O(n) time, O(k) space.\npub fn max_sliding_window(xs: &[i32], k: usize) -> Vec<i32> {\n    assert!(k > 0 && k <= xs.len());\n    let mut deque: VecDeque<usize> = VecDeque::with_capacity(k);\n    let mut out = Vec::with_capacity(xs.len() - k + 1);\n\n    for i in 0..xs.len() {\n        while deque.back().is_some_and(|&j| xs[j] <= xs[i]) {\n            deque.pop_back();\n        }\n        deque.push_back(i);\n\n        if let Some(&front) = deque.front() {\n            if front + k == i + 1 {\n                deque.pop_front();\n            }\n        }\n        if i + 1 >= k {\n            out.push(xs[*deque.front().expect(\"window is non-empty\")]);\n        }\n    }\n    out\n}",
           "tip": "Drop expired indices before pushing the output, not after, or the first window can report a value that already left it."
         }
       ],
@@ -1283,48 +757,7 @@ pub fn max_sliding_window(xs: &[i32], k: usize) -> Vec<i32> {
         "prompt": "Implement `next_greater` returning, for each index, the index of the next strictly greater element or None. Then implement `span(prices: &[u64]) -> Vec<usize>` where span[i] is how many consecutive days ending at i had a price less than or equal to prices[i].",
         "starter": "pub fn next_greater(xs: &[i64]) -> Vec<Option<usize>> {\n    // stack of unresolved indices, values decreasing from bottom to top\n    todo!()\n}\n\npub fn span(prices: &[u64]) -> Vec<usize> {\n    // pop while the stacked price is <= today's price, then span = i - previous index\n    todo!()\n}",
         "hint": "For next_greater, store indices on the stack and pop while xs[top] < xs[i]. For span, store indices of unresolved days and pop while prices[top] <= prices[i]; when the stack empties, the span reaches back to day zero.",
-        "solution": `pub fn next_greater(xs: &[i64]) -> Vec<Option<usize>> {
-    let mut out = vec![None; xs.len()];
-    let mut stack: Vec<usize> = Vec::with_capacity(xs.len());
-    for i in 0..xs.len() {
-        while let Some(&top) = stack.last() {
-            if xs[top] < xs[i] {
-                out[top] = Some(i);
-                stack.pop();
-            } else {
-                break;
-            }
-        }
-        stack.push(i);
-    }
-    out
-}
-
-pub fn span(prices: &[u64]) -> Vec<usize> {
-    let mut spans = vec![0usize; prices.len()];
-    let mut stack: Vec<usize> = Vec::with_capacity(prices.len());
-    for i in 0..prices.len() {
-        while let Some(&top) = stack.last() {
-            if prices[top] <= prices[i] {
-                stack.pop();
-            } else {
-                break;
-            }
-        }
-        spans[i] = match stack.last() {
-            Some(&top) => i - top,
-            None => i + 1,
-        };
-        stack.push(i);
-    }
-    spans
-}
-
-fn main() {
-    assert_eq!(next_greater(&[2, 1, 3]), vec![Some(2), Some(2), None]);
-    assert_eq!(span(&[100, 80, 60, 70, 60, 75, 85]), vec![1, 1, 1, 2, 1, 4, 6]);
-    println!("ok");
-}`
+        "solution": "pub fn next_greater(xs: &[i64]) -> Vec<Option<usize>> {\n    let mut out = vec![None; xs.len()];\n    let mut stack: Vec<usize> = Vec::with_capacity(xs.len());\n    for i in 0..xs.len() {\n        while let Some(&top) = stack.last() {\n            if xs[top] < xs[i] {\n                out[top] = Some(i);\n                stack.pop();\n            } else {\n                break;\n            }\n        }\n        stack.push(i);\n    }\n    out\n}\n\npub fn span(prices: &[u64]) -> Vec<usize> {\n    let mut spans = vec![0usize; prices.len()];\n    let mut stack: Vec<usize> = Vec::with_capacity(prices.len());\n    for i in 0..prices.len() {\n        while let Some(&top) = stack.last() {\n            if prices[top] <= prices[i] {\n                stack.pop();\n            } else {\n                break;\n            }\n        }\n        spans[i] = match stack.last() {\n            Some(&top) => i - top,\n            None => i + 1,\n        };\n        stack.push(i);\n    }\n    spans\n}\n\nfn main() {\n    assert_eq!(next_greater(&[2, 1, 3]), vec![Some(2), Some(2), None]);\n    assert_eq!(span(&[100, 80, 60, 70, 60, 75, 85]), vec![1, 1, 1, 2, 1, 4, 6]);\n    println!(\"ok\");\n}"
       },
       "questions": [
         {
@@ -1374,7 +807,6 @@ fn main() {
         "Stack-based parsers cap depth or use an explicit heap stack to avoid overflow on hostile input."
       ],
       "crates": [
-        "std",
         "smallvec"
       ],
       "github": [
@@ -1433,48 +865,7 @@ fn main() {
             "A node owns its successor: struct Node { value: i32, next: Option<Box<Node>> }. To move the head out you cannot copy it, so you take() it, leaving None behind. Reversal then walks the list with three variables - previous, current, next - and each step detaches the successor before reassigning, because holding two mutable paths into the same node is exactly what the borrow checker forbids.",
             "The take-and-replace pattern is the general answer to moving out of a place you only have &mut access to. It costs nothing at runtime: Option<Box<T>> is pointer-sized thanks to the null-pointer optimisation, and take is a mem::replace with None. Writing the loop by hand once is the fastest way to stop fighting the compiler on tree and list code."
           ],
-          "code": `#[derive(Debug)]
-struct Node {
-    value: i32,
-    next: Option<Box<Node>>,
-}
-
-#[derive(Debug, Default)]
-pub struct List {
-    head: Option<Box<Node>>,
-    len: usize,
-}
-
-impl List {
-    pub fn push_front(&mut self, value: i32) {
-        let next = self.head.take();
-        self.head = Some(Box::new(Node { value, next }));
-        self.len += 1;
-    }
-
-    pub fn pop_front(&mut self) -> Option<i32> {
-        let mut node = self.head.take()?;
-        self.head = node.next.take();
-        self.len -= 1;
-        Some(node.value)
-    }
-
-    /// Reverse in place, O(n) time and O(1) extra space.
-    pub fn reverse(&mut self) {
-        let mut previous: Option<Box<Node>> = None;
-        let mut current = self.head.take();
-        while let Some(mut node) = current {
-            current = node.next.take();
-            node.next = previous;
-            previous = Some(node);
-        }
-        self.head = previous;
-    }
-
-    pub fn len(&self) -> usize {
-        self.len
-    }
-}`,
+          "code": "#[derive(Debug)]\nstruct Node {\n    value: i32,\n    next: Option<Box<Node>>,\n}\n\n#[derive(Debug, Default)]\npub struct List {\n    head: Option<Box<Node>>,\n    len: usize,\n}\n\nimpl List {\n    pub fn push_front(&mut self, value: i32) {\n        let next = self.head.take();\n        self.head = Some(Box::new(Node { value, next }));\n        self.len += 1;\n    }\n\n    pub fn pop_front(&mut self) -> Option<i32> {\n        let mut node = self.head.take()?;\n        self.head = node.next.take();\n        self.len -= 1;\n        Some(node.value)\n    }\n\n    /// Reverse in place, O(n) time and O(1) extra space.\n    pub fn reverse(&mut self) {\n        let mut previous: Option<Box<Node>> = None;\n        let mut current = self.head.take();\n        while let Some(mut node) = current {\n            current = node.next.take();\n            node.next = previous;\n            previous = Some(node);\n        }\n        self.head = previous;\n    }\n\n    pub fn len(&self) -> usize {\n        self.len\n    }\n}",
           "tip": "Option<Box<T>> is one pointer wide: None is the null pointer. Boxing a node does not cost an extra tag."
         },
         {
@@ -1483,27 +874,7 @@ impl List {
             "The derived drop glue for Option<Box<Node>> drops the head, which drops its next, which drops its next: one stack frame per node. A list of a hundred thousand nodes needs a hundred thousand frames, and the default 8 MB thread stack overflows inside drop, where the panic cannot even be caught reliably. The program aborts during cleanup, which looks like a random crash at shutdown.",
             "The fix is an explicit Drop that unlinks iteratively before the nodes go out of scope. Take the head, then repeatedly take the successor and let the current node drop with next already None. Every serious intrusive list in Rust does this, and so does the standard library for some recursive types. Any time you write a recursive data structure with an owning pointer, ask what its drop does."
           ],
-          "code": `impl Drop for List {
-    fn drop(&mut self) {
-        // Unlink iteratively: dropping the chain recursively would use one
-        // stack frame per node and abort on long lists.
-        let mut current = self.head.take();
-        while let Some(mut node) = current {
-            current = node.next.take();
-        }
-    }
-}
-
-fn main() {
-    let mut list = List::default();
-    for i in 0..1_000_000 {
-        list.push_front(i);
-    }
-    list.reverse();
-    assert_eq!(list.len(), 1_000_000);
-    assert_eq!(list.pop_front(), Some(0));
-    // Dropping one million nodes here is iterative, so it does not overflow.
-}`,
+          "code": "impl Drop for List {\n    fn drop(&mut self) {\n        // Unlink iteratively: dropping the chain recursively would use one\n        // stack frame per node and abort on long lists.\n        let mut current = self.head.take();\n        while let Some(mut node) = current {\n            current = node.next.take();\n        }\n    }\n}\n\nfn main() {\n    let mut list = List::default();\n    for i in 0..1_000_000 {\n        list.push_front(i);\n    }\n    list.reverse();\n    assert_eq!(list.len(), 1_000_000);\n    assert_eq!(list.pop_front(), Some(0));\n    // Dropping one million nodes here is iterative, so it does not overflow.\n}",
           "tip": "Write a test that builds a list of 1e6 nodes and drops it. If it aborts, you have the recursive-drop bug."
         },
         {
@@ -1524,80 +895,7 @@ fn main() {
         "prompt": "Implement a singly linked list with push_front, pop_front, and an in-place reverse, then add an iterative Drop so that dropping a list of one million nodes does not overflow the stack. Prove the reverse with a test that compares against the original Vec order.",
         "starter": "#[derive(Debug)]\nstruct Node {\n    value: i32,\n    next: Option<Box<Node>>,\n}\n\npub struct List {\n    head: Option<Box<Node>>,\n}\n\nimpl List {\n    pub fn push_front(&mut self, value: i32) { todo!() }\n    pub fn pop_front(&mut self) -> Option<i32> { todo!() }\n    pub fn reverse(&mut self) { todo!() }\n}\n\nimpl Drop for List {\n    fn drop(&mut self) { todo!() }\n}",
         "hint": "push_front takes self.head and rebuilds it with a new node. reverse walks with previous/current and uses node.next.take() before reassigning. Drop loops taking successors so each node is freed with next already None.",
-        "solution": `#[derive(Debug)]
-struct Node {
-    value: i32,
-    next: Option<Box<Node>>,
-}
-
-pub struct List {
-    head: Option<Box<Node>>,
-}
-
-impl List {
-    pub fn new() -> Self {
-        Self { head: None }
-    }
-
-    pub fn push_front(&mut self, value: i32) {
-        let next = self.head.take();
-        self.head = Some(Box::new(Node { value, next }));
-    }
-
-    pub fn pop_front(&mut self) -> Option<i32> {
-        let mut node = self.head.take()?;
-        self.head = node.next.take();
-        Some(node.value)
-    }
-
-    pub fn reverse(&mut self) {
-        let mut previous: Option<Box<Node>> = None;
-        let mut current = self.head.take();
-        while let Some(mut node) = current {
-            current = node.next.take();
-            node.next = previous;
-            previous = Some(node);
-        }
-        self.head = previous;
-    }
-
-    pub fn to_vec(&self) -> Vec<i32> {
-        let mut out = Vec::new();
-        let mut cursor = self.head.as_deref();
-        while let Some(node) = cursor {
-            out.push(node.value);
-            cursor = node.next.as_deref();
-        }
-        out
-    }
-}
-
-impl Drop for List {
-    fn drop(&mut self) {
-        let mut current = self.head.take();
-        while let Some(mut node) = current {
-            current = node.next.take();
-        }
-    }
-}
-
-fn main() {
-    let mut list = List::new();
-    for value in [3, 2, 1] {
-        list.push_front(value);
-    }
-    assert_eq!(list.to_vec(), vec![1, 2, 3]);
-    list.reverse();
-    assert_eq!(list.to_vec(), vec![3, 2, 1]);
-    assert_eq!(list.pop_front(), Some(3));
-
-    let mut big = List::new();
-    for i in 0..1_000_000 {
-        big.push_front(i);
-    }
-    drop(big); // iterative Drop: no stack overflow
-    println!("ok");
-}`
+        "solution": "#[derive(Debug)]\nstruct Node {\n    value: i32,\n    next: Option<Box<Node>>,\n}\n\npub struct List {\n    head: Option<Box<Node>>,\n}\n\nimpl List {\n    pub fn new() -> Self {\n        Self { head: None }\n    }\n\n    pub fn push_front(&mut self, value: i32) {\n        let next = self.head.take();\n        self.head = Some(Box::new(Node { value, next }));\n    }\n\n    pub fn pop_front(&mut self) -> Option<i32> {\n        let mut node = self.head.take()?;\n        self.head = node.next.take();\n        Some(node.value)\n    }\n\n    pub fn reverse(&mut self) {\n        let mut previous: Option<Box<Node>> = None;\n        let mut current = self.head.take();\n        while let Some(mut node) = current {\n            current = node.next.take();\n            node.next = previous;\n            previous = Some(node);\n        }\n        self.head = previous;\n    }\n\n    pub fn to_vec(&self) -> Vec<i32> {\n        let mut out = Vec::new();\n        let mut cursor = self.head.as_deref();\n        while let Some(node) = cursor {\n            out.push(node.value);\n            cursor = node.next.as_deref();\n        }\n        out\n    }\n}\n\nimpl Drop for List {\n    fn drop(&mut self) {\n        let mut current = self.head.take();\n        while let Some(mut node) = current {\n            current = node.next.take();\n        }\n    }\n}\n\nfn main() {\n    let mut list = List::new();\n    for value in [3, 2, 1] {\n        list.push_front(value);\n    }\n    assert_eq!(list.to_vec(), vec![1, 2, 3]);\n    list.reverse();\n    assert_eq!(list.to_vec(), vec![3, 2, 1]);\n    assert_eq!(list.pop_front(), Some(3));\n\n    let mut big = List::new();\n    for i in 0..1_000_000 {\n        big.push_front(i);\n    }\n    drop(big); // iterative Drop: no stack overflow\n    println!(\"ok\");\n}"
       },
       "questions": [
         {
@@ -1647,7 +945,6 @@ fn main() {
         "Long-list behaviour is covered by a test with at least 100k nodes."
       ],
       "crates": [
-        "std",
         "smallvec"
       ],
       "github": [
@@ -1705,63 +1002,7 @@ fn main() {
             "Recursive inorder is four lines and three of them are correct, but it consumes one stack frame per level. A degenerate tree is a million levels deep, and the traversal overflows the stack before it finishes. An explicit Vec-based stack uses heap memory and has a hard, inspectable bound, which is the right trade for parsing untrusted input.",
             "The iterative version walks left as far as possible, pushing each node, then pops one, visits it, and descends into its right child. The invariant is that the stack holds exactly the ancestors whose left subtree is being consumed. That yields sorted output from a BST and a natural way to implement an iterator with a resume point, which is what a database cursor does over an index."
           ],
-          "code": `pub struct Node {
-    pub key: i64,
-    pub left: Option<u32>,
-    pub right: Option<u32>,
-}
-
-pub struct ArenaTree {
-    pub nodes: Vec<Node>,
-    pub root: Option<u32>,
-}
-
-impl ArenaTree {
-    pub fn new() -> Self {
-        Self { nodes: Vec::new(), root: None }
-    }
-
-    pub fn insert(&mut self, key: i64) {
-        let new_id = self.nodes.len() as u32;
-        self.nodes.push(Node { key, left: None, right: None });
-
-        let Some(mut current) = self.root else {
-            self.root = Some(new_id);
-            return;
-        };
-
-        loop {
-            let slot = &mut self.nodes[current as usize];
-            let branch = if key < slot.key { &mut slot.left } else { &mut slot.right };
-            match *branch {
-                Some(next) => current = next,
-                None => {
-                    *branch = Some(new_id);
-                    return;
-                }
-            }
-        }
-    }
-
-    /// Inorder keys without recursion: left spine, pop, then right subtree.
-    pub fn inorder(&self) -> Vec<i64> {
-        let mut out = Vec::with_capacity(self.nodes.len());
-        let mut stack: Vec<u32> = Vec::new();
-        let mut current = self.root;
-
-        while current.is_some() || !stack.is_empty() {
-            while let Some(id) = current {
-                stack.push(id);
-                current = self.nodes[id as usize].left;
-            }
-            let id = stack.pop().expect("loop condition guarantees a node");
-            let node = &self.nodes[id as usize];
-            out.push(node.key);
-            current = node.right;
-        }
-        out
-    }
-}`,
+          "code": "pub struct Node {\n    pub key: i64,\n    pub left: Option<u32>,\n    pub right: Option<u32>,\n}\n\npub struct ArenaTree {\n    pub nodes: Vec<Node>,\n    pub root: Option<u32>,\n}\n\nimpl ArenaTree {\n    pub fn new() -> Self {\n        Self { nodes: Vec::new(), root: None }\n    }\n\n    pub fn insert(&mut self, key: i64) {\n        let new_id = self.nodes.len() as u32;\n        self.nodes.push(Node { key, left: None, right: None });\n\n        let Some(mut current) = self.root else {\n            self.root = Some(new_id);\n            return;\n        };\n\n        loop {\n            let slot = &mut self.nodes[current as usize];\n            let branch = if key < slot.key { &mut slot.left } else { &mut slot.right };\n            match *branch {\n                Some(next) => current = next,\n                None => {\n                    *branch = Some(new_id);\n                    return;\n                }\n            }\n        }\n    }\n\n    /// Inorder keys without recursion: left spine, pop, then right subtree.\n    pub fn inorder(&self) -> Vec<i64> {\n        let mut out = Vec::with_capacity(self.nodes.len());\n        let mut stack: Vec<u32> = Vec::new();\n        let mut current = self.root;\n\n        while current.is_some() || !stack.is_empty() {\n            while let Some(id) = current {\n                stack.push(id);\n                current = self.nodes[id as usize].left;\n            }\n            let id = stack.pop().expect(\"loop condition guarantees a node\");\n            let node = &self.nodes[id as usize];\n            out.push(node.key);\n            current = node.right;\n        }\n        out\n    }\n}",
           "tip": "The traversal needs only the left spine on the stack, never the whole tree: peak memory is O(height)."
         },
         {
@@ -1777,39 +1018,7 @@ impl ArenaTree {
             "Preorder visits parents before children and is how you copy or serialise a tree. Postorder visits children first and is how you free, evaluate, or compute sizes bottom-up. Inorder gives sorted order for a BST. Level order is BFS and gives shortest hop counts in an unweighted tree. Choosing the wrong one is not a performance bug; it is a wrong answer that still compiles and runs.",
             "Depth-first search on a general graph needs a visited marker because graphs have cycles; a tree does not, but the same code often serves both. petgraph draws the line explicitly: Dfs and Bfs iterators handle visitation, while toposort works on directed acyclic graphs and returns Err(Cycle) when the input has a cycle. Reusing those instead of rewriting traversal logic is usually the right call in production."
           ],
-          "code": `use petgraph::algo::toposort;
-use petgraph::graph::DiGraph;
-use std::collections::VecDeque;
-
-/// Topological order of a dependency graph, or the cycle that prevents it.
-pub fn build_order(deps: &DiGraph<&'static str, ()>) -> Result<Vec<&'static str>, String> {
-    toposort(deps, None)
-        .map(|order| order.into_iter().map(|id| deps[id]).collect())
-        .map_err(|cycle| format!("dependency cycle at {:?}", deps[cycle.node_id()]))
-}
-
-/// BFS levels from a start node: the tree equivalent of level order.
-pub fn levels(graph: &DiGraph<&'static str, ()>, start: petgraph::graph::NodeIndex) -> Vec<Vec<&'static str>> {
-    let mut queue: VecDeque<(petgraph::graph::NodeIndex, usize)> = VecDeque::new();
-    let mut seen = vec![false; graph.node_count()];
-    let mut out: Vec<Vec<&'static str>> = Vec::new();
-
-    seen[start.index()] = true;
-    queue.push_back((start, 0));
-    while let Some((node, depth)) = queue.pop_front() {
-        if out.len() == depth {
-            out.push(Vec::new());
-        }
-        out[depth].push(graph[node]);
-        for next in graph.neighbors(node) {
-            if !seen[next.index()] {
-                seen[next.index()] = true;
-                queue.push_back((next, depth + 1));
-            }
-        }
-    }
-    out
-}`,
+          "code": "use petgraph::algo::toposort;\nuse petgraph::graph::DiGraph;\nuse std::collections::VecDeque;\n\n/// Topological order of a dependency graph, or the cycle that prevents it.\npub fn build_order(deps: &DiGraph<&'static str, ()>) -> Result<Vec<&'static str>, String> {\n    toposort(deps, None)\n        .map(|order| order.into_iter().map(|id| deps[id]).collect())\n        .map_err(|cycle| format!(\"dependency cycle at {:?}\", deps[cycle.node_id()]))\n}\n\n/// BFS levels from a start node: the tree equivalent of level order.\npub fn levels(graph: &DiGraph<&'static str, ()>, start: petgraph::graph::NodeIndex) -> Vec<Vec<&'static str>> {\n    let mut queue: VecDeque<(petgraph::graph::NodeIndex, usize)> = VecDeque::new();\n    let mut seen = vec![false; graph.node_count()];\n    let mut out: Vec<Vec<&'static str>> = Vec::new();\n\n    seen[start.index()] = true;\n    queue.push_back((start, 0));\n    while let Some((node, depth)) = queue.pop_front() {\n        if out.len() == depth {\n            out.push(Vec::new());\n        }\n        out[depth].push(graph[node]);\n        for next in graph.neighbors(node) {\n            if !seen[next.index()] {\n                seen[next.index()] = true;\n                queue.push_back((next, depth + 1));\n            }\n        }\n    }\n    out\n}",
           "tip": "For a dependency graph, toposort is the answer to what order, and DFS postorder is the answer to why that order."
         }
       ],
@@ -1817,94 +1026,7 @@ pub fn levels(graph: &DiGraph<&'static str, ()>, start: petgraph::graph::NodeInd
         "prompt": "Implement an arena-backed BST with iterative insert and an iterative inorder traversal that returns keys in sorted order. Then add `height()` computed with an explicit stack, and show that inserting a sorted sequence produces a tree of height n.",
         "starter": "pub struct Node {\n    pub key: i64,\n    pub left: Option<u32>,\n    pub right: Option<u32>,\n}\n\npub struct ArenaTree {\n    pub nodes: Vec<Node>,\n    pub root: Option<u32>,\n}\n\nimpl ArenaTree {\n    pub fn insert(&mut self, key: i64) { todo!() }\n    pub fn inorder(&self) -> Vec<i64> { todo!() }\n    pub fn height(&self) -> usize { todo!() }\n}",
         "hint": "Insert: push the node first, then walk from the root re-borrowing each slot until you find a None child. Inorder: descend the left spine pushing ids, pop one, emit, move right. Height: stack of (id, depth), track the maximum.",
-        "solution": `pub struct Node {
-    pub key: i64,
-    pub left: Option<u32>,
-    pub right: Option<u32>,
-}
-
-pub struct ArenaTree {
-    pub nodes: Vec<Node>,
-    pub root: Option<u32>,
-}
-
-impl ArenaTree {
-    pub fn new() -> Self {
-        Self { nodes: Vec::new(), root: None }
-    }
-
-    pub fn insert(&mut self, key: i64) {
-        let new_id = self.nodes.len() as u32;
-        self.nodes.push(Node { key, left: None, right: None });
-
-        let Some(mut current) = self.root else {
-            self.root = Some(new_id);
-            return;
-        };
-
-        loop {
-            let slot = &mut self.nodes[current as usize];
-            let branch = if key < slot.key { &mut slot.left } else { &mut slot.right };
-            match *branch {
-                Some(next) => current = next,
-                None => {
-                    *branch = Some(new_id);
-                    return;
-                }
-            }
-        }
-    }
-
-    pub fn inorder(&self) -> Vec<i64> {
-        let mut out = Vec::with_capacity(self.nodes.len());
-        let mut stack: Vec<u32> = Vec::new();
-        let mut current = self.root;
-        while current.is_some() || !stack.is_empty() {
-            while let Some(id) = current {
-                stack.push(id);
-                current = self.nodes[id as usize].left;
-            }
-            let id = stack.pop().expect("non-empty");
-            let node = &self.nodes[id as usize];
-            out.push(node.key);
-            current = node.right;
-        }
-        out
-    }
-
-    pub fn height(&self) -> usize {
-        let Some(root) = self.root else { return 0 };
-        let mut best = 0usize;
-        let mut stack = vec![(root, 1usize)];
-        while let Some((id, depth)) = stack.pop() {
-            best = best.max(depth);
-            let node = &self.nodes[id as usize];
-            if let Some(left) = node.left {
-                stack.push((left, depth + 1));
-            }
-            if let Some(right) = node.right {
-                stack.push((right, depth + 1));
-            }
-        }
-        best
-    }
-}
-
-fn main() {
-    let mut balanced = ArenaTree::new();
-    for key in [50, 25, 75, 10, 30, 60, 90] {
-        balanced.insert(key);
-    }
-    assert_eq!(balanced.inorder(), vec![10, 25, 30, 50, 60, 75, 90]);
-    assert_eq!(balanced.height(), 3);
-
-    let mut degenerate = ArenaTree::new();
-    for key in 0..1_000 {
-        degenerate.insert(key);
-    }
-    assert_eq!(degenerate.height(), 1_000); // sorted input, no balancing
-    println!("balanced height 3, sorted-insert height 1000");
-}`
+        "solution": "pub struct Node {\n    pub key: i64,\n    pub left: Option<u32>,\n    pub right: Option<u32>,\n}\n\npub struct ArenaTree {\n    pub nodes: Vec<Node>,\n    pub root: Option<u32>,\n}\n\nimpl ArenaTree {\n    pub fn new() -> Self {\n        Self { nodes: Vec::new(), root: None }\n    }\n\n    pub fn insert(&mut self, key: i64) {\n        let new_id = self.nodes.len() as u32;\n        self.nodes.push(Node { key, left: None, right: None });\n\n        let Some(mut current) = self.root else {\n            self.root = Some(new_id);\n            return;\n        };\n\n        loop {\n            let slot = &mut self.nodes[current as usize];\n            let branch = if key < slot.key { &mut slot.left } else { &mut slot.right };\n            match *branch {\n                Some(next) => current = next,\n                None => {\n                    *branch = Some(new_id);\n                    return;\n                }\n            }\n        }\n    }\n\n    pub fn inorder(&self) -> Vec<i64> {\n        let mut out = Vec::with_capacity(self.nodes.len());\n        let mut stack: Vec<u32> = Vec::new();\n        let mut current = self.root;\n        while current.is_some() || !stack.is_empty() {\n            while let Some(id) = current {\n                stack.push(id);\n                current = self.nodes[id as usize].left;\n            }\n            let id = stack.pop().expect(\"non-empty\");\n            let node = &self.nodes[id as usize];\n            out.push(node.key);\n            current = node.right;\n        }\n        out\n    }\n\n    pub fn height(&self) -> usize {\n        let Some(root) = self.root else { return 0 };\n        let mut best = 0usize;\n        let mut stack = vec![(root, 1usize)];\n        while let Some((id, depth)) = stack.pop() {\n            best = best.max(depth);\n            let node = &self.nodes[id as usize];\n            if let Some(left) = node.left {\n                stack.push((left, depth + 1));\n            }\n            if let Some(right) = node.right {\n                stack.push((right, depth + 1));\n            }\n        }\n        best\n    }\n}\n\nfn main() {\n    let mut balanced = ArenaTree::new();\n    for key in [50, 25, 75, 10, 30, 60, 90] {\n        balanced.insert(key);\n    }\n    assert_eq!(balanced.inorder(), vec![10, 25, 30, 50, 60, 75, 90]);\n    assert_eq!(balanced.height(), 3);\n\n    let mut degenerate = ArenaTree::new();\n    for key in 0..1_000 {\n        degenerate.insert(key);\n    }\n    assert_eq!(degenerate.height(), 1_000); // sorted input, no balancing\n    println!(\"balanced height 3, sorted-insert height 1000\");\n}"
       },
       "questions": [
         {
@@ -1954,7 +1076,6 @@ fn main() {
         "Dependency ordering uses toposort and reports the cycle node, not a generic error."
       ],
       "crates": [
-        "std",
         "petgraph",
         "indexmap"
       ],
@@ -2012,31 +1133,7 @@ fn main() {
             "Without decrease-key, the standard trick is to push a new (distance, node) entry every time a shorter distance is found and never remove the old one. When an entry is popped, check it against the current best distance; if it is stale, skip it. The heap can hold up to O(E) entries, but each push is O(log E) and the total stays O(E log E), which is the same asymptotic cost as the indexed version.",
             "The constant matters: duplicate entries cost memory and extra sift work. In practice lazy Dijkstra is often faster than an indexed heap on sparse graphs because pushes and pops are simple and the stale check is a single array load. Reach for an indexed heap when the graph is dense, when memory is tight, or when the same node's priority changes many times."
           ],
-          "code": `use std::cmp::Reverse;
-use std::collections::BinaryHeap;
-
-/// Dijkstra with lazy deletion. edges[u] = [(v, weight), ...], weights are non-negative.
-pub fn dijkstra(edges: &[Vec<(usize, u64)>], start: usize) -> Vec<Option<u64>> {
-    let mut dist: Vec<Option<u64>> = vec![None; edges.len()];
-    let mut heap: BinaryHeap<Reverse<(u64, usize)>> = BinaryHeap::new();
-
-    dist[start] = Some(0);
-    heap.push(Reverse((0, start)));
-
-    while let Some(Reverse((d, u))) = heap.pop() {
-        if dist[u].is_some_and(|best| d > best) {
-            continue; // stale entry left behind by an earlier relaxation
-        }
-        for &(v, w) in &edges[u] {
-            let candidate = d + w;
-            if dist[v].is_none_or(|best| candidate < best) {
-                dist[v] = Some(candidate);
-                heap.push(Reverse((candidate, v)));
-            }
-        }
-    }
-    dist
-}`,
+          "code": "use std::cmp::Reverse;\nuse std::collections::BinaryHeap;\n\n/// Dijkstra with lazy deletion. edges[u] = [(v, weight), ...], weights are non-negative.\npub fn dijkstra(edges: &[Vec<(usize, u64)>], start: usize) -> Vec<Option<u64>> {\n    let mut dist: Vec<Option<u64>> = vec![None; edges.len()];\n    let mut heap: BinaryHeap<Reverse<(u64, usize)>> = BinaryHeap::new();\n\n    dist[start] = Some(0);\n    heap.push(Reverse((0, start)));\n\n    while let Some(Reverse((d, u))) = heap.pop() {\n        if dist[u].is_some_and(|best| d > best) {\n            continue; // stale entry left behind by an earlier relaxation\n        }\n        for &(v, w) in &edges[u] {\n            let candidate = d + w;\n            if dist[v].is_none_or(|best| candidate < best) {\n                dist[v] = Some(candidate);\n                heap.push(Reverse((candidate, v)));\n            }\n        }\n    }\n    dist\n}",
           "tip": "The stale check must compare the popped distance to the stored one. Comparing node ids only skips duplicates from the same relaxation, not older ones."
         },
         {
@@ -2045,29 +1142,7 @@ pub fn dijkstra(edges: &[Vec<(usize, u64)>], start: usize) -> Vec<Option<u64>> {
             "priority-queue's PriorityQueue<I, P> keys entries by item identity plus priority, so pushing an existing item updates it and returns the old priority, and change_priority returns the previous value. Internally it keeps a map from item to heap position, which is the decrease-key that std omits. The item type must be Hash + Eq, so use u32 node ids rather than structs.",
             "An indexed heap is the right structure for schedulers where a job's deadline changes, for event simulation with rescheduling, and for algorithms that relax the same node repeatedly. It is the wrong structure when items are inserted once and popped once, because you pay hashing and bookkeeping for an update path you never use."
           ],
-          "code": `use priority_queue::PriorityQueue;
-use std::cmp::Reverse;
-
-/// Reschedule a job's deadline and prove the old one is returned.
-pub fn reschedule(queue: &mut PriorityQueue<String, Reverse<u64>>, job: &str, deadline: u64) {
-    let previous = queue.push(job.to_string(), Reverse(deadline));
-    match previous {
-        Some(Reverse(old)) => println!("{job}: deadline moved from {old} to {deadline}"),
-        None => println!("{job}: inserted with deadline {deadline}"),
-    }
-}
-
-pub fn run() {
-    let mut queue: PriorityQueue<String, Reverse<u64>> = PriorityQueue::new();
-    reschedule(&mut queue, "nightly-report", 500);
-    reschedule(&mut queue, "backup", 200);
-    reschedule(&mut queue, "nightly-report", 100); // earlier deadline, priority increased
-
-    assert_eq!(queue.peek(), Some((&"nightly-report".to_string(), &Reverse(100))));
-    while let Some((job, Reverse(deadline))) = queue.pop() {
-        println!("{job} at {deadline}");
-    }
-}`,
+          "code": "use priority_queue::PriorityQueue;\nuse std::cmp::Reverse;\n\n/// Reschedule a job's deadline and prove the old one is returned.\npub fn reschedule(queue: &mut PriorityQueue<String, Reverse<u64>>, job: &str, deadline: u64) {\n    let previous = queue.push(job.to_string(), Reverse(deadline));\n    match previous {\n        Some(Reverse(old)) => println!(\"{job}: deadline moved from {old} to {deadline}\"),\n        None => println!(\"{job}: inserted with deadline {deadline}\"),\n    }\n}\n\npub fn run() {\n    let mut queue: PriorityQueue<String, Reverse<u64>> = PriorityQueue::new();\n    reschedule(&mut queue, \"nightly-report\", 500);\n    reschedule(&mut queue, \"backup\", 200);\n    reschedule(&mut queue, \"nightly-report\", 100); // earlier deadline, priority increased\n\n    assert_eq!(queue.peek(), Some((&\"nightly-report\".to_string(), &Reverse(100))));\n    while let Some((job, Reverse(deadline))) = queue.pop() {\n        println!(\"{job} at {deadline}\");\n    }\n}",
           "tip": "Reverse<u64> makes the smallest deadline the greatest priority, which is what a scheduler wants."
         },
         {
@@ -2088,41 +1163,7 @@ pub fn run() {
         "prompt": "Implement Dijkstra with a BinaryHeap and lazy deletion over an adjacency list, then add a `pop_valid` helper that discards stale entries. Prove with a test that a graph with a shorter path discovered later still returns the correct distances.",
         "starter": "use std::cmp::Reverse;\nuse std::collections::BinaryHeap;\n\npub fn dijkstra(edges: &[Vec<(usize, u64)>], start: usize) -> Vec<Option<u64>> {\n    // dist: Vec<Option<u64>>, heap of Reverse((distance, node))\n    todo!()\n}",
         "hint": "Initialise dist[start] = Some(0) and push (0, start). On pop, skip if the popped distance is greater than the stored one; otherwise relax every edge and push improved distances.",
-        "solution": `use std::cmp::Reverse;
-use std::collections::BinaryHeap;
-
-pub fn dijkstra(edges: &[Vec<(usize, u64)>], start: usize) -> Vec<Option<u64>> {
-    let mut dist: Vec<Option<u64>> = vec![None; edges.len()];
-    let mut heap: BinaryHeap<Reverse<(u64, usize)>> = BinaryHeap::new();
-
-    dist[start] = Some(0);
-    heap.push(Reverse((0, start)));
-
-    while let Some(Reverse((d, u))) = heap.pop() {
-        if dist[u].is_some_and(|best| d > best) {
-            continue;
-        }
-        for &(v, w) in &edges[u] {
-            let candidate = d + w;
-            if dist[v].is_none_or(|best| candidate < best) {
-                dist[v] = Some(candidate);
-                heap.push(Reverse((candidate, v)));
-            }
-        }
-    }
-    dist
-}
-
-fn main() {
-    // 0 -> 1 costs 10, 0 -> 2 costs 1, 2 -> 1 costs 1: the short path is found after the long one.
-    let edges = vec![
-        vec![(1, 10), (2, 1)],
-        vec![],
-        vec![(1, 1)],
-    ];
-    assert_eq!(dijkstra(&edges, 0), vec![Some(0), Some(2), Some(1)]);
-    println!("ok");
-}`
+        "solution": "use std::cmp::Reverse;\nuse std::collections::BinaryHeap;\n\npub fn dijkstra(edges: &[Vec<(usize, u64)>], start: usize) -> Vec<Option<u64>> {\n    let mut dist: Vec<Option<u64>> = vec![None; edges.len()];\n    let mut heap: BinaryHeap<Reverse<(u64, usize)>> = BinaryHeap::new();\n\n    dist[start] = Some(0);\n    heap.push(Reverse((0, start)));\n\n    while let Some(Reverse((d, u))) = heap.pop() {\n        if dist[u].is_some_and(|best| d > best) {\n            continue;\n        }\n        for &(v, w) in &edges[u] {\n            let candidate = d + w;\n            if dist[v].is_none_or(|best| candidate < best) {\n                dist[v] = Some(candidate);\n                heap.push(Reverse((candidate, v)));\n            }\n        }\n    }\n    dist\n}\n\nfn main() {\n    // 0 -> 1 costs 10, 0 -> 2 costs 1, 2 -> 1 costs 1: the short path is found after the long one.\n    let edges = vec![\n        vec![(1, 10), (2, 1)],\n        vec![],\n        vec![(1, 1)],\n    ];\n    assert_eq!(dijkstra(&edges, 0), vec![Some(0), Some(2), Some(1)]);\n    println!(\"ok\");\n}"
       },
       "questions": [
         {
@@ -2173,7 +1214,6 @@ fn main() {
       ],
       "crates": [
         "priority-queue",
-        "std",
         "criterion"
       ],
       "github": [
@@ -2223,54 +1263,7 @@ fn main() {
             "Vec<Vec<u32>> is the readable adjacency list: one allocation per node, O(1) neighbour iteration, but pointer chasing and per-node allocator overhead. CSR flattens it into offsets plus targets, which is what you want for million-node graphs: two allocations, sequential scans, and no per-node indirection. Building CSR needs the degrees first, so it is a two-pass construction over an edge list.",
             "Directed and undirected differ by one line - insert both directions - and that line is a common source of double-counted components and wrong in-degrees. Node identity should be a dense u32 assigned at load time; keep a HashMap<String, u32> only at the boundary where external ids are parsed. Validating that every edge endpoint is in range is cheaper than debugging a panic three layers into a traversal."
           ],
-          "code": `/// Compressed sparse row adjacency: one allocation for offsets, one for targets.
-pub struct Csr {
-    pub offsets: Vec<u32>,
-    pub targets: Vec<u32>,
-}
-
-impl Csr {
-    /// edges must contain node ids in 0..n.
-    pub fn from_edges(n: usize, edges: &[(u32, u32)], directed: bool) -> Self {
-        let mut counts = vec![0u32; n + 1];
-        for &(u, v) in edges {
-            assert!((u as usize) < n && (v as usize) < n, "endpoint out of range");
-            counts[u as usize + 1] += 1;
-            if !directed {
-                counts[v as usize + 1] += 1;
-            }
-        }
-        for i in 0..n {
-            counts[i + 1] += counts[i];
-        }
-
-        let mut offsets = counts.clone();
-        let mut targets = vec![0u32; offsets[n] as usize];
-        for &(u, v) in edges {
-            let slot = &mut offsets[u as usize];
-            targets[*slot as usize] = v;
-            *slot += 1;
-            if !directed {
-                let slot = &mut offsets[v as usize];
-                targets[*slot as usize] = u;
-                *slot += 1;
-            }
-        }
-        // Restore offsets: the scatter above advanced them.
-        let mut start = 0u32;
-        let mut rebuilt = vec![0u32; n + 1];
-        for i in 0..n {
-            rebuilt[i] = start;
-            start += counts[i + 1] - counts[i];
-        }
-        rebuilt[n] = start;
-        Self { offsets: rebuilt, targets }
-    }
-
-    pub fn neighbors(&self, u: u32) -> &[u32] {
-        &self.targets[self.offsets[u as usize] as usize..self.offsets[u as usize + 1] as usize]
-    }
-}`,
+          "code": "/// Compressed sparse row adjacency: one allocation for offsets, one for targets.\npub struct Csr {\n    pub offsets: Vec<u32>,\n    pub targets: Vec<u32>,\n}\n\nimpl Csr {\n    /// edges must contain node ids in 0..n.\n    pub fn from_edges(n: usize, edges: &[(u32, u32)], directed: bool) -> Self {\n        let mut counts = vec![0u32; n + 1];\n        for &(u, v) in edges {\n            assert!((u as usize) < n && (v as usize) < n, \"endpoint out of range\");\n            counts[u as usize + 1] += 1;\n            if !directed {\n                counts[v as usize + 1] += 1;\n            }\n        }\n        for i in 0..n {\n            counts[i + 1] += counts[i];\n        }\n\n        let mut offsets = counts.clone();\n        let mut targets = vec![0u32; offsets[n] as usize];\n        for &(u, v) in edges {\n            let slot = &mut offsets[u as usize];\n            targets[*slot as usize] = v;\n            *slot += 1;\n            if !directed {\n                let slot = &mut offsets[v as usize];\n                targets[*slot as usize] = u;\n                *slot += 1;\n            }\n        }\n        // Restore offsets: the scatter above advanced them.\n        let mut start = 0u32;\n        let mut rebuilt = vec![0u32; n + 1];\n        for i in 0..n {\n            rebuilt[i] = start;\n            start += counts[i + 1] - counts[i];\n        }\n        rebuilt[n] = start;\n        Self { offsets: rebuilt, targets }\n    }\n\n    pub fn neighbors(&self, u: u32) -> &[u32] {\n        &self.targets[self.offsets[u as usize] as usize..self.offsets[u as usize + 1] as usize]\n    }\n}",
           "tip": "Build CSR from a degree count in one pass, then scatter. If offsets and targets disagree, neighbours() silently returns the wrong slice."
         },
         {
@@ -2279,43 +1272,7 @@ impl Csr {
             "BFS explores in order of hop count, so the first time it reaches a node it has found a shortest path in edges. A VecDeque is the queue, a dist array of Option<u32> or u32::MAX is the visited marker, and a parent array reconstructs the path. Mark nodes when they are enqueued, not when they are dequeued, or the queue can hold the same node many times.",
             "The cost is O(V + E) time and O(V) space, which is optimal for the problem. Multi-source BFS seeds the queue with several starts and answers nearest-facility questions in one pass. On a grid, BFS is the algorithm behind flood fill, maze solving, and the rotting-oranges style simulation; on a graph it is the answer to minimum hops, not minimum cost."
           ],
-          "code": `use std::collections::VecDeque;
-
-/// BFS distances and parents from one source. Returns None for unreachable nodes.
-pub fn bfs(csr: &Csr, start: u32) -> (Vec<Option<u32>>, Vec<Option<u32>>) {
-    let n = csr.offsets.len() - 1;
-    let mut dist: Vec<Option<u32>> = vec![None; n];
-    let mut parent: Vec<Option<u32>> = vec![None; n];
-    let mut queue: VecDeque<u32> = VecDeque::with_capacity(n);
-
-    dist[start as usize] = Some(0);
-    queue.push_back(start);
-
-    while let Some(u) = queue.pop_front() {
-        let next_dist = dist[u as usize].expect("queued nodes have a distance") + 1;
-        for &v in csr.neighbors(u) {
-            if dist[v as usize].is_none() {
-                dist[v as usize] = Some(next_dist);
-                parent[v as usize] = Some(u);
-                queue.push_back(v);
-            }
-        }
-    }
-    (dist, parent)
-}
-
-/// Path from start to goal by walking parents backwards, or None if unreachable.
-pub fn path_to(parent: &[Option<u32>], start: u32, goal: u32) -> Option<Vec<u32>> {
-    let mut path = Vec::new();
-    let mut current = goal;
-    while current != start {
-        path.push(current);
-        current = parent[current as usize]?;
-    }
-    path.push(start);
-    path.reverse();
-    Some(path)
-}`,
+          "code": "use std::collections::VecDeque;\n\n/// BFS distances and parents from one source. Returns None for unreachable nodes.\npub fn bfs(csr: &Csr, start: u32) -> (Vec<Option<u32>>, Vec<Option<u32>>) {\n    let n = csr.offsets.len() - 1;\n    let mut dist: Vec<Option<u32>> = vec![None; n];\n    let mut parent: Vec<Option<u32>> = vec![None; n];\n    let mut queue: VecDeque<u32> = VecDeque::with_capacity(n);\n\n    dist[start as usize] = Some(0);\n    queue.push_back(start);\n\n    while let Some(u) = queue.pop_front() {\n        let next_dist = dist[u as usize].expect(\"queued nodes have a distance\") + 1;\n        for &v in csr.neighbors(u) {\n            if dist[v as usize].is_none() {\n                dist[v as usize] = Some(next_dist);\n                parent[v as usize] = Some(u);\n                queue.push_back(v);\n            }\n        }\n    }\n    (dist, parent)\n}\n\n/// Path from start to goal by walking parents backwards, or None if unreachable.\npub fn path_to(parent: &[Option<u32>], start: u32, goal: u32) -> Option<Vec<u32>> {\n    let mut path = Vec::new();\n    let mut current = goal;\n    while current != start {\n        path.push(current);\n        current = parent[current as usize]?;\n    }\n    path.push(start);\n    path.reverse();\n    Some(path)\n}",
           "tip": "Set the visited marker at enqueue time. Marking on dequeue lets the same node enter the queue once per incoming edge."
         },
         {
@@ -2324,46 +1281,7 @@ pub fn path_to(parent: &[Option<u32>], start: u32, goal: u32) -> Option<Vec<u32>
             "Recursive DFS is the natural expression and the wrong one for untrusted depth. The iterative version needs an explicit stack of (node, next-child-index) to reproduce postorder, or two stacks if you only need finishing order. White/gray/black colours are the standard cycle detector: reaching a gray node means a back edge, which is a cycle in a directed graph.",
             "Topological order is the reverse of DFS finishing order on a DAG, and petgraph's toposort computes it directly, returning Err(Cycle) when no order exists. A cycle in a dependency graph is a configuration error, not an internal invariant violation, so it belongs in the error type and should name the nodes involved. That is the difference between an operator fixing a manifest and an engineer reading a panic."
           ],
-          "code": `#[derive(Clone, Copy, PartialEq)]
-enum Color {
-    White,
-    Gray,
-    Black,
-}
-
-/// Returns the node that closes a directed cycle, if one exists.
-pub fn find_cycle(csr: &Csr) -> Option<u32> {
-    let n = csr.offsets.len() - 1;
-    let mut color = vec![Color::White; n];
-
-    for start in 0..n {
-        if color[start] != Color::White {
-            continue;
-        }
-        let mut stack: Vec<(u32, usize)> = vec![(start as u32, 0)];
-        color[start] = Color::Gray;
-
-        while let Some(&mut (u, ref mut next_child)) = stack.last_mut() {
-            let neighbors = csr.neighbors(u);
-            if *next_child < neighbors.len() {
-                let v = neighbors[*next_child];
-                *next_child += 1;
-                match color[v as usize] {
-                    Color::Gray => return Some(v),
-                    Color::White => {
-                        color[v as usize] = Color::Gray;
-                        stack.push((v, 0));
-                    }
-                    Color::Black => {}
-                }
-            } else {
-                color[u as usize] = Color::Black;
-                stack.pop();
-            }
-        }
-    }
-    None
-}`,
+          "code": "#[derive(Clone, Copy, PartialEq)]\nenum Color {\n    White,\n    Gray,\n    Black,\n}\n\n/// Returns the node that closes a directed cycle, if one exists.\npub fn find_cycle(csr: &Csr) -> Option<u32> {\n    let n = csr.offsets.len() - 1;\n    let mut color = vec![Color::White; n];\n\n    for start in 0..n {\n        if color[start] != Color::White {\n            continue;\n        }\n        let mut stack: Vec<(u32, usize)> = vec![(start as u32, 0)];\n        color[start] = Color::Gray;\n\n        while let Some(&mut (u, ref mut next_child)) = stack.last_mut() {\n            let neighbors = csr.neighbors(u);\n            if *next_child < neighbors.len() {\n                let v = neighbors[*next_child];\n                *next_child += 1;\n                match color[v as usize] {\n                    Color::Gray => return Some(v),\n                    Color::White => {\n                        color[v as usize] = Color::Gray;\n                        stack.push((v, 0));\n                    }\n                    Color::Black => {}\n                }\n            } else {\n                color[u as usize] = Color::Black;\n                stack.pop();\n            }\n        }\n    }\n    None\n}",
           "tip": "Gray means on the current stack. A white node seen twice is a cross edge, which is fine; a gray node means you have walked a loop."
         },
         {
@@ -2378,90 +1296,7 @@ pub fn find_cycle(csr: &Csr) -> Option<u32> {
         "prompt": "Implement BFS over an adjacency list that returns distances and parents, plus `path_to` that reconstructs the route from start to goal. Then implement directed cycle detection with white/gray/black colours and return a node that closes the cycle.",
         "starter": "use std::collections::VecDeque;\n\npub fn bfs(adj: &[Vec<u32>], start: u32) -> (Vec<Option<u32>>, Vec<Option<u32>>) {\n    // mark visited when enqueuing\n    todo!()\n}\n\npub fn find_cycle(adj: &[Vec<u32>]) -> Option<u32> {\n    // explicit stack of (node, next child index), colours white/gray/black\n    todo!()\n}",
         "hint": "In BFS, set dist[v] and parent[v] before push_back. In find_cycle, keep (node, child_index) frames; a gray neighbour is a back edge, and a finished node becomes black.",
-        "solution": `use std::collections::VecDeque;
-
-pub fn bfs(adj: &[Vec<u32>], start: u32) -> (Vec<Option<u32>>, Vec<Option<u32>>) {
-    let mut dist: Vec<Option<u32>> = vec![None; adj.len()];
-    let mut parent: Vec<Option<u32>> = vec![None; adj.len()];
-    let mut queue = VecDeque::new();
-
-    dist[start as usize] = Some(0);
-    queue.push_back(start);
-
-    while let Some(u) = queue.pop_front() {
-        let d = dist[u as usize].unwrap() + 1;
-        for &v in &adj[u as usize] {
-            if dist[v as usize].is_none() {
-                dist[v as usize] = Some(d);
-                parent[v as usize] = Some(u);
-                queue.push_back(v);
-            }
-        }
-    }
-    (dist, parent)
-}
-
-pub fn path_to(parent: &[Option<u32>], start: u32, goal: u32) -> Option<Vec<u32>> {
-    let mut path = Vec::new();
-    let mut current = goal;
-    while current != start {
-        path.push(current);
-        current = parent[current as usize]?;
-    }
-    path.push(start);
-    path.reverse();
-    Some(path)
-}
-
-#[derive(Clone, Copy, PartialEq)]
-enum Color {
-    White,
-    Gray,
-    Black,
-}
-
-pub fn find_cycle(adj: &[Vec<u32>]) -> Option<u32> {
-    let mut color = vec![Color::White; adj.len()];
-    for start in 0..adj.len() {
-        if color[start] != Color::White {
-            continue;
-        }
-        let mut stack: Vec<(u32, usize)> = vec![(start as u32, 0)];
-        color[start] = Color::Gray;
-
-        while let Some(&mut (u, ref mut next_child)) = stack.last_mut() {
-            let neighbors = &adj[u as usize];
-            if *next_child < neighbors.len() {
-                let v = neighbors[*next_child];
-                *next_child += 1;
-                match color[v as usize] {
-                    Color::Gray => return Some(v),
-                    Color::White => {
-                        color[v as usize] = Color::Gray;
-                        stack.push((v, 0));
-                    }
-                    Color::Black => {}
-                }
-            } else {
-                color[u as usize] = Color::Black;
-                stack.pop();
-            }
-        }
-    }
-    None
-}
-
-fn main() {
-    let adj = vec![vec![1, 2], vec![3], vec![3], vec![]];
-    let (dist, parent) = bfs(&adj, 0);
-    assert_eq!(dist, vec![Some(0), Some(1), Some(1), Some(2)]);
-    assert_eq!(path_to(&parent, 0, 3), Some(vec![0, 1, 3]));
-    assert_eq!(find_cycle(&adj), None);
-
-    let cyclic = vec![vec![1], vec![2], vec![0]];
-    assert_eq!(find_cycle(&cyclic), Some(0));
-    println!("ok");
-}`
+        "solution": "use std::collections::VecDeque;\n\npub fn bfs(adj: &[Vec<u32>], start: u32) -> (Vec<Option<u32>>, Vec<Option<u32>>) {\n    let mut dist: Vec<Option<u32>> = vec![None; adj.len()];\n    let mut parent: Vec<Option<u32>> = vec![None; adj.len()];\n    let mut queue = VecDeque::new();\n\n    dist[start as usize] = Some(0);\n    queue.push_back(start);\n\n    while let Some(u) = queue.pop_front() {\n        let d = dist[u as usize].unwrap() + 1;\n        for &v in &adj[u as usize] {\n            if dist[v as usize].is_none() {\n                dist[v as usize] = Some(d);\n                parent[v as usize] = Some(u);\n                queue.push_back(v);\n            }\n        }\n    }\n    (dist, parent)\n}\n\npub fn path_to(parent: &[Option<u32>], start: u32, goal: u32) -> Option<Vec<u32>> {\n    let mut path = Vec::new();\n    let mut current = goal;\n    while current != start {\n        path.push(current);\n        current = parent[current as usize]?;\n    }\n    path.push(start);\n    path.reverse();\n    Some(path)\n}\n\n#[derive(Clone, Copy, PartialEq)]\nenum Color {\n    White,\n    Gray,\n    Black,\n}\n\npub fn find_cycle(adj: &[Vec<u32>]) -> Option<u32> {\n    let mut color = vec![Color::White; adj.len()];\n    for start in 0..adj.len() {\n        if color[start] != Color::White {\n            continue;\n        }\n        let mut stack: Vec<(u32, usize)> = vec![(start as u32, 0)];\n        color[start] = Color::Gray;\n\n        while let Some(&mut (u, ref mut next_child)) = stack.last_mut() {\n            let neighbors = &adj[u as usize];\n            if *next_child < neighbors.len() {\n                let v = neighbors[*next_child];\n                *next_child += 1;\n                match color[v as usize] {\n                    Color::Gray => return Some(v),\n                    Color::White => {\n                        color[v as usize] = Color::Gray;\n                        stack.push((v, 0));\n                    }\n                    Color::Black => {}\n                }\n            } else {\n                color[u as usize] = Color::Black;\n                stack.pop();\n            }\n        }\n    }\n    None\n}\n\nfn main() {\n    let adj = vec![vec![1, 2], vec![3], vec![3], vec![]];\n    let (dist, parent) = bfs(&adj, 0);\n    assert_eq!(dist, vec![Some(0), Some(1), Some(1), Some(2)]);\n    assert_eq!(path_to(&parent, 0, 3), Some(vec![0, 1, 3]));\n    assert_eq!(find_cycle(&adj), None);\n\n    let cyclic = vec![vec![1], vec![2], vec![0]];\n    assert_eq!(find_cycle(&cyclic), Some(0));\n    println!(\"ok\");\n}"
       },
       "questions": [
         {
@@ -2511,7 +1346,6 @@ fn main() {
         "Undirected edges are inserted in both directions exactly once, verified by a degree assertion."
       ],
       "crates": [
-        "std",
         "petgraph"
       ],
       "github": [
@@ -2557,37 +1391,7 @@ fn main() {
             "Dijkstra maintains a set of settled nodes whose shortest distance is final, and repeatedly settles the unsettled node with the smallest tentative distance. That step is only valid when edge weights are non-negative: adding a negative edge could make a path to an already-settled node shorter, which breaks the invariant. With a binary heap the cost is O((V + E) log V), and with a Fibonacci heap it is O(E + V log V), which is why the paper benchmark exists.",
             "Stop when the goal is popped, not when it is pushed: the first pop of a node is the moment its distance is final. Reconstruct the path with a parent array updated on every successful relaxation. The heap holds at most one live entry per node but may hold stale duplicates, so the settle check compares the popped distance with the stored one before expanding."
           ],
-          "code": `use petgraph::algo::dijkstra;
-use petgraph::graph::{DiGraph, NodeIndex};
-use std::collections::HashMap;
-
-/// All distances from a source with petgraph; non-negative weights required.
-/// petgraph returns a hashbrown map, so collect into std's HashMap here.
-pub fn distances(g: &DiGraph<&'static str, u32>, start: NodeIndex) -> HashMap<NodeIndex, u32> {
-    dijkstra(g, start, None, |edge| *edge.weight())
-        .into_iter()
-        .collect()
-}
-
-/// Early exit: once the goal is settled, do not explore the rest of the graph.
-pub fn distance_to(
-    g: &DiGraph<&'static str, u32>,
-    start: NodeIndex,
-    goal: NodeIndex,
-) -> Option<u32> {
-    dijkstra(g, start, Some(goal), |edge| *edge.weight()).get(&goal).copied()
-}
-
-fn main() {
-    let mut g: DiGraph<&str, u32> = DiGraph::new();
-    let a = g.add_node("a");
-    let b = g.add_node("b");
-    let c = g.add_node("c");
-    g.add_edge(a, b, 10);
-    g.add_edge(a, c, 1);
-    g.add_edge(c, b, 1);
-    assert_eq!(distance_to(&g, a, b), Some(2));
-}`,
+          "code": "use petgraph::algo::dijkstra;\nuse petgraph::graph::{DiGraph, NodeIndex};\nuse std::collections::HashMap;\n\n/// All distances from a source with petgraph; non-negative weights required.\n/// petgraph returns a hashbrown map, so collect into std's HashMap here.\npub fn distances(g: &DiGraph<&'static str, u32>, start: NodeIndex) -> HashMap<NodeIndex, u32> {\n    dijkstra(g, start, None, |edge| *edge.weight())\n        .into_iter()\n        .collect()\n}\n\n/// Early exit: once the goal is settled, do not explore the rest of the graph.\npub fn distance_to(\n    g: &DiGraph<&'static str, u32>,\n    start: NodeIndex,\n    goal: NodeIndex,\n) -> Option<u32> {\n    dijkstra(g, start, Some(goal), |edge| *edge.weight()).get(&goal).copied()\n}\n\nfn main() {\n    let mut g: DiGraph<&str, u32> = DiGraph::new();\n    let a = g.add_node(\"a\");\n    let b = g.add_node(\"b\");\n    let c = g.add_node(\"c\");\n    g.add_edge(a, b, 10);\n    g.add_edge(a, c, 1);\n    g.add_edge(c, b, 1);\n    assert_eq!(distance_to(&g, a, b), Some(2));\n}",
           "tip": "The goal-bound variant returns a map that may not contain the goal when it is unreachable; check the lookup rather than unwrapping it."
         },
         {
@@ -2609,37 +1413,7 @@ fn main() {
             "A* orders the frontier by f(n) = g(n) + h(n), where g is the cost so far and h estimates the remaining cost. If h never overestimates the true remaining distance - it is admissible - A* is guaranteed to return an optimal path. If h is also consistent, meaning h(u) <= cost(u,v) + h(v), then no node is expanded twice and the search is efficient as well as correct.",
             "On a grid, Manhattan distance is admissible when movement is four-directional and each step costs at least one; octile distance applies to eight-directional movement; Euclidean distance works for continuous space. Scaling h by a factor above one gives weighted A*, which is faster and returns paths within that factor of optimal - useful for games, wrong for a routing engine that promises the shortest route."
           ],
-          "code": `use petgraph::algo::astar;
-use petgraph::graph::{DiGraph, NodeIndex};
-
-/// A* over a unit-cost grid graph. Manhattan distance is admissible for 4-way moves.
-pub fn astar_grid(
-    g: &DiGraph<(u32, u32), u32>,
-    start: NodeIndex,
-    goal: NodeIndex,
-) -> Option<(u32, Vec<NodeIndex>)> {
-    let (gx, gy) = g[goal];
-    let heuristic = |n: NodeIndex| {
-        let (x, y) = g[n];
-        x.abs_diff(gx) + y.abs_diff(gy)
-    };
-
-    astar(g, start, |n| n == goal, |edge| *edge.weight(), heuristic)
-}
-
-fn main() {
-    let mut g: DiGraph<(u32, u32), u32> = DiGraph::new();
-    let a = g.add_node((0, 0));
-    let b = g.add_node((1, 0));
-    let c = g.add_node((1, 1));
-    g.add_edge(a, b, 1);
-    g.add_edge(b, c, 1);
-    g.add_edge(a, c, 5);
-
-    let (cost, path) = astar_grid(&g, a, c).expect("connected");
-    assert_eq!(cost, 2);
-    assert_eq!(path, vec![a, b, c]);
-}`,
+          "code": "use petgraph::algo::astar;\nuse petgraph::graph::{DiGraph, NodeIndex};\n\n/// A* over a unit-cost grid graph. Manhattan distance is admissible for 4-way moves.\npub fn astar_grid(\n    g: &DiGraph<(u32, u32), u32>,\n    start: NodeIndex,\n    goal: NodeIndex,\n) -> Option<(u32, Vec<NodeIndex>)> {\n    let (gx, gy) = g[goal];\n    let heuristic = |n: NodeIndex| {\n        let (x, y) = g[n];\n        x.abs_diff(gx) + y.abs_diff(gy)\n    };\n\n    astar(g, start, |n| n == goal, |edge| *edge.weight(), heuristic)\n}\n\nfn main() {\n    let mut g: DiGraph<(u32, u32), u32> = DiGraph::new();\n    let a = g.add_node((0, 0));\n    let b = g.add_node((1, 0));\n    let c = g.add_node((1, 1));\n    g.add_edge(a, b, 1);\n    g.add_edge(b, c, 1);\n    g.add_edge(a, c, 5);\n\n    let (cost, path) = astar_grid(&g, a, c).expect(\"connected\");\n    assert_eq!(cost, 2);\n    assert_eq!(path, vec![a, b, c]);\n}",
           "tip": "If the heuristic can overestimate by one, the returned path can be one unit worse and no test with a single example will catch it. Property-test the triangle inequality instead."
         },
         {
@@ -2660,93 +1434,7 @@ fn main() {
         "prompt": "Implement Dijkstra from scratch over an adjacency list and return distances plus parents. Then add an A* variant that takes a heuristic closure, and test that A* returns the same cost as Dijkstra on a small grid with unit weights.",
         "starter": "use std::cmp::Reverse;\nuse std::collections::BinaryHeap;\n\npub fn dijkstra(adj: &[Vec<(usize, u64)>], start: usize) -> (Vec<Option<u64>>, Vec<Option<usize>>) {\n    todo!()\n}\n\npub fn astar(\n    adj: &[Vec<(usize, u64)>],\n    start: usize,\n    goal: usize,\n    heuristic: impl Fn(usize) -> u64,\n) -> Option<(u64, Vec<usize>)> {\n    todo!()\n}",
         "hint": "A* is Dijkstra with the heap key changed to g + h; keep g in a separate array, skip stale pops by comparing g, and stop when the goal is popped. With h = 0 it must produce identical costs.",
-        "solution": `use std::cmp::Reverse;
-use std::collections::BinaryHeap;
-
-pub fn dijkstra(
-    adj: &[Vec<(usize, u64)>],
-    start: usize,
-) -> (Vec<Option<u64>>, Vec<Option<usize>>) {
-    let mut dist: Vec<Option<u64>> = vec![None; adj.len()];
-    let mut parent: Vec<Option<usize>> = vec![None; adj.len()];
-    let mut heap: BinaryHeap<Reverse<(u64, usize)>> = BinaryHeap::new();
-
-    dist[start] = Some(0);
-    heap.push(Reverse((0, start)));
-
-    while let Some(Reverse((d, u))) = heap.pop() {
-        if dist[u].is_some_and(|best| d > best) {
-            continue;
-        }
-        for &(v, w) in &adj[u] {
-            let candidate = d + w;
-            if dist[v].is_none_or(|best| candidate < best) {
-                dist[v] = Some(candidate);
-                parent[v] = Some(u);
-                heap.push(Reverse((candidate, v)));
-            }
-        }
-    }
-    (dist, parent)
-}
-
-pub fn astar(
-    adj: &[Vec<(usize, u64)>],
-    start: usize,
-    goal: usize,
-    heuristic: impl Fn(usize) -> u64,
-) -> Option<(u64, Vec<usize>)> {
-    let mut best: Vec<Option<u64>> = vec![None; adj.len()];
-    let mut parent: Vec<Option<usize>> = vec![None; adj.len()];
-    let mut heap: BinaryHeap<Reverse<(u64, u64, usize)>> = BinaryHeap::new(); // (f, g, node)
-
-    best[start] = Some(0);
-    heap.push(Reverse((heuristic(start), 0, start)));
-
-    while let Some(Reverse((_, g, u))) = heap.pop() {
-        if u == goal {
-            let mut path = vec![goal];
-            let mut current = goal;
-            while current != start {
-                current = parent[current]?;
-                path.push(current);
-            }
-            path.reverse();
-            return Some((g, path));
-        }
-        if best[u].is_some_and(|known| g > known) {
-            continue;
-        }
-        for &(v, w) in &adj[u] {
-            let candidate = g + w;
-            if best[v].is_none_or(|known| candidate < known) {
-                best[v] = Some(candidate);
-                parent[v] = Some(u);
-                heap.push(Reverse((candidate + heuristic(v), candidate, v)));
-            }
-        }
-    }
-    None
-}
-
-fn main() {
-    let adj = vec![
-        vec![(1, 1), (2, 5)],
-        vec![(2, 1)],
-        vec![],
-    ];
-    let (dist, _) = dijkstra(&adj, 0);
-    assert_eq!(dist[2], Some(2));
-
-    let zero = |_: usize| 0u64;
-    let (cost, path) = astar(&adj, 0, 2, zero).unwrap();
-    assert_eq!(cost, 2);
-    assert_eq!(path, vec![0, 1, 2]);
-
-    let perfect = |n: usize| if n == 2 { 0 } else { 1 };
-    assert_eq!(astar(&adj, 0, 2, perfect).unwrap().0, 2);
-    println!("ok");
-}`
+        "solution": "use std::cmp::Reverse;\nuse std::collections::BinaryHeap;\n\npub fn dijkstra(\n    adj: &[Vec<(usize, u64)>],\n    start: usize,\n) -> (Vec<Option<u64>>, Vec<Option<usize>>) {\n    let mut dist: Vec<Option<u64>> = vec![None; adj.len()];\n    let mut parent: Vec<Option<usize>> = vec![None; adj.len()];\n    let mut heap: BinaryHeap<Reverse<(u64, usize)>> = BinaryHeap::new();\n\n    dist[start] = Some(0);\n    heap.push(Reverse((0, start)));\n\n    while let Some(Reverse((d, u))) = heap.pop() {\n        if dist[u].is_some_and(|best| d > best) {\n            continue;\n        }\n        for &(v, w) in &adj[u] {\n            let candidate = d + w;\n            if dist[v].is_none_or(|best| candidate < best) {\n                dist[v] = Some(candidate);\n                parent[v] = Some(u);\n                heap.push(Reverse((candidate, v)));\n            }\n        }\n    }\n    (dist, parent)\n}\n\npub fn astar(\n    adj: &[Vec<(usize, u64)>],\n    start: usize,\n    goal: usize,\n    heuristic: impl Fn(usize) -> u64,\n) -> Option<(u64, Vec<usize>)> {\n    let mut best: Vec<Option<u64>> = vec![None; adj.len()];\n    let mut parent: Vec<Option<usize>> = vec![None; adj.len()];\n    let mut heap: BinaryHeap<Reverse<(u64, u64, usize)>> = BinaryHeap::new(); // (f, g, node)\n\n    best[start] = Some(0);\n    heap.push(Reverse((heuristic(start), 0, start)));\n\n    while let Some(Reverse((_, g, u))) = heap.pop() {\n        if u == goal {\n            let mut path = vec![goal];\n            let mut current = goal;\n            while current != start {\n                current = parent[current]?;\n                path.push(current);\n            }\n            path.reverse();\n            return Some((g, path));\n        }\n        if best[u].is_some_and(|known| g > known) {\n            continue;\n        }\n        for &(v, w) in &adj[u] {\n            let candidate = g + w;\n            if best[v].is_none_or(|known| candidate < known) {\n                best[v] = Some(candidate);\n                parent[v] = Some(u);\n                heap.push(Reverse((candidate + heuristic(v), candidate, v)));\n            }\n        }\n    }\n    None\n}\n\nfn main() {\n    let adj = vec![\n        vec![(1, 1), (2, 5)],\n        vec![(2, 1)],\n        vec![],\n    ];\n    let (dist, _) = dijkstra(&adj, 0);\n    assert_eq!(dist[2], Some(2));\n\n    let zero = |_: usize| 0u64;\n    let (cost, path) = astar(&adj, 0, 2, zero).unwrap();\n    assert_eq!(cost, 2);\n    assert_eq!(path, vec![0, 1, 2]);\n\n    let perfect = |n: usize| if n == 2 { 0 } else { 1 };\n    assert_eq!(astar(&adj, 0, 2, perfect).unwrap().0, 2);\n    println!(\"ok\");\n}"
       },
       "questions": [
         {
@@ -2797,8 +1485,7 @@ fn main() {
       ],
       "crates": [
         "petgraph",
-        "priority-queue",
-        "std"
+        "priority-queue"
       ],
       "github": [
         {
@@ -2852,58 +1539,7 @@ fn main() {
             "A disjoint-set forest stores a parent index per element. find walks to the root; union links one root under another. Two rules make it fast: union by size always attaches the smaller tree under the larger, which keeps depth logarithmic, and path compression points every node on the find path directly at the root, which flattens the tree for later calls. Together they give an amortised cost of O(alpha(n)), the inverse Ackermann function.",
             "alpha(n) is at most 4 for any n that fits in the physical universe, so the practical answer is constant time per operation. The proof is subtle - it took years to simplify, which is why the recent analyses are worth reading - but the implementation is twenty lines. The important part is that neither rule alone is enough: union by size without compression gives O(log n), compression without union by size gives O(log n) amortised."
           ],
-          "code": `pub struct DisjointSet {
-    parent: Vec<u32>,
-    size: Vec<u32>,
-    components: usize,
-}
-
-impl DisjointSet {
-    pub fn new(n: usize) -> Self {
-        Self {
-            parent: (0..n as u32).collect(),
-            size: vec![1; n],
-            components: n,
-        }
-    }
-
-    /// Iterative find with full path compression: no recursion, no stack risk.
-    pub fn find(&mut self, mut x: u32) -> u32 {
-        let mut root = x;
-        while self.parent[root as usize] != root {
-            root = self.parent[root as usize];
-        }
-        while self.parent[x as usize] != root {
-            let next = self.parent[x as usize];
-            self.parent[x as usize] = root;
-            x = next;
-        }
-        root
-    }
-
-    /// Returns false when the two elements were already connected.
-    pub fn union(&mut self, a: u32, b: u32) -> bool {
-        let (mut ra, mut rb) = (self.find(a), self.find(b));
-        if ra == rb {
-            return false;
-        }
-        if self.size[ra as usize] < self.size[rb as usize] {
-            std::mem::swap(&mut ra, &mut rb);
-        }
-        self.parent[rb as usize] = ra;
-        self.size[ra as usize] += self.size[rb as usize];
-        self.components -= 1;
-        true
-    }
-
-    pub fn connected(&mut self, a: u32, b: u32) -> bool {
-        self.find(a) == self.find(b)
-    }
-
-    pub fn components(&self) -> usize {
-        self.components
-    }
-}`,
+          "code": "pub struct DisjointSet {\n    parent: Vec<u32>,\n    size: Vec<u32>,\n    components: usize,\n}\n\nimpl DisjointSet {\n    pub fn new(n: usize) -> Self {\n        Self {\n            parent: (0..n as u32).collect(),\n            size: vec![1; n],\n            components: n,\n        }\n    }\n\n    /// Iterative find with full path compression: no recursion, no stack risk.\n    pub fn find(&mut self, mut x: u32) -> u32 {\n        let mut root = x;\n        while self.parent[root as usize] != root {\n            root = self.parent[root as usize];\n        }\n        while self.parent[x as usize] != root {\n            let next = self.parent[x as usize];\n            self.parent[x as usize] = root;\n            x = next;\n        }\n        root\n    }\n\n    /// Returns false when the two elements were already connected.\n    pub fn union(&mut self, a: u32, b: u32) -> bool {\n        let (mut ra, mut rb) = (self.find(a), self.find(b));\n        if ra == rb {\n            return false;\n        }\n        if self.size[ra as usize] < self.size[rb as usize] {\n            std::mem::swap(&mut ra, &mut rb);\n        }\n        self.parent[rb as usize] = ra;\n        self.size[ra as usize] += self.size[rb as usize];\n        self.components -= 1;\n        true\n    }\n\n    pub fn connected(&mut self, a: u32, b: u32) -> bool {\n        self.find(a) == self.find(b)\n    }\n\n    pub fn components(&self) -> usize {\n        self.components\n    }\n}",
           "tip": "Both loops in find are necessary: the first finds the root, the second flattens the path. Fusing them is where subtle bugs live."
         },
         {
@@ -2912,26 +1548,7 @@ impl DisjointSet {
             "Kruskal's minimum spanning tree sorts edges by weight and adds each one whose endpoints are in different components. Union-find answers that question in amortised constant time, so the whole algorithm is dominated by the sort: O(E log E). The rejected edges are exactly the ones that would close a cycle, which is why the algorithm never needs an explicit cycle check.",
             "The same machinery answers dynamic connectivity questions: as edges arrive, are two nodes connected yet? Adding edges only merges components, which union-find handles; deletions do not work, because splitting a component needs a different data structure. That asymmetry is worth remembering before designing a feature around it."
           ],
-          "code": `/// Kruskal MST. edges are (u, v, weight); returns total weight and chosen edges.
-pub fn kruskal(n: usize, mut edges: Vec<(u32, u32, u64)>) -> (u64, Vec<(u32, u32, u64)>) {
-    edges.sort_unstable_by_key(|&(_, _, w)| w);
-    let mut dsu = DisjointSet::new(n);
-    let mut total = 0u64;
-    let mut chosen = Vec::new();
-
-    for edge @ (u, v, w) in edges {
-        if dsu.union(u, v) {
-            total += w;
-            chosen.push(edge);
-            if chosen.len() + 1 == n {
-                break; // spanning tree complete
-            }
-        }
-    }
-
-    assert_eq!(chosen.len() + 1, n, "graph is disconnected");
-    (total, chosen)
-}`,
+          "code": "/// Kruskal MST. edges are (u, v, weight); returns total weight and chosen edges.\npub fn kruskal(n: usize, mut edges: Vec<(u32, u32, u64)>) -> (u64, Vec<(u32, u32, u64)>) {\n    edges.sort_unstable_by_key(|&(_, _, w)| w);\n    let mut dsu = DisjointSet::new(n);\n    let mut total = 0u64;\n    let mut chosen = Vec::new();\n\n    for edge @ (u, v, w) in edges {\n        if dsu.union(u, v) {\n            total += w;\n            chosen.push(edge);\n            if chosen.len() + 1 == n {\n                break; // spanning tree complete\n            }\n        }\n    }\n\n    assert_eq!(chosen.len() + 1, n, \"graph is disconnected\");\n    (total, chosen)\n}",
           "tip": "Store the edge tuple before destructuring if you need it afterwards; the loop pattern above rebinds it with @ so the weight is not lost."
         },
         {
@@ -2952,84 +1569,7 @@ pub fn kruskal(n: usize, mut edges: Vec<(u32, u32, u64)>) -> (u64, Vec<(u32, u32
         "prompt": "Implement DisjointSet with iterative find, path compression, and union by size. Then implement `count_provinces(adj: &[Vec<u32>]) -> usize`, returning the number of connected components of an undirected graph, and verify it on a graph with two separate clusters.",
         "starter": "pub struct DisjointSet {\n    parent: Vec<u32>,\n    size: Vec<u32>,\n}\n\nimpl DisjointSet {\n    pub fn new(n: usize) -> Self { todo!() }\n    pub fn find(&mut self, x: u32) -> u32 { todo!() }\n    pub fn union(&mut self, a: u32, b: u32) -> bool { todo!() }\n}\n\npub fn count_provinces(adj: &[Vec<u32>]) -> usize {\n    todo!()\n}",
         "hint": "Start with components = n and decrement on every successful union. For count_provinces, union each undirected edge once (i < j) and return dsu.components().",
-        "solution": `pub struct DisjointSet {
-    parent: Vec<u32>,
-    size: Vec<u32>,
-    components: usize,
-}
-
-impl DisjointSet {
-    pub fn new(n: usize) -> Self {
-        Self {
-            parent: (0..n as u32).collect(),
-            size: vec![1; n],
-            components: n,
-        }
-    }
-
-    pub fn find(&mut self, mut x: u32) -> u32 {
-        let mut root = x;
-        while self.parent[root as usize] != root {
-            root = self.parent[root as usize];
-        }
-        while self.parent[x as usize] != root {
-            let next = self.parent[x as usize];
-            self.parent[x as usize] = root;
-            x = next;
-        }
-        root
-    }
-
-    pub fn union(&mut self, a: u32, b: u32) -> bool {
-        let (mut ra, mut rb) = (self.find(a), self.find(b));
-        if ra == rb {
-            return false;
-        }
-        if self.size[ra as usize] < self.size[rb as usize] {
-            std::mem::swap(&mut ra, &mut rb);
-        }
-        self.parent[rb as usize] = ra;
-        self.size[ra as usize] += self.size[rb as usize];
-        self.components -= 1;
-        true
-    }
-
-    pub fn components(&self) -> usize {
-        self.components
-    }
-}
-
-pub fn count_provinces(adj: &[Vec<u32>]) -> usize {
-    let mut dsu = DisjointSet::new(adj.len());
-    for (u, neighbors) in adj.iter().enumerate() {
-        for &v in neighbors {
-            if (u as u32) < v {
-                dsu.union(u as u32, v);
-            }
-        }
-    }
-    dsu.components()
-}
-
-fn main() {
-    // 0-1-2 form one cluster, 3-4 another, 5 is isolated.
-    let adj = vec![
-        vec![1],
-        vec![0, 2],
-        vec![1],
-        vec![4],
-        vec![3],
-        vec![],
-    ];
-    assert_eq!(count_provinces(&adj), 3);
-
-    let mut dsu = DisjointSet::new(5);
-    assert!(dsu.union(0, 1));
-    assert!(dsu.union(1, 2));
-    assert!(!dsu.union(0, 2), "already connected");
-    assert_eq!(dsu.components(), 3);
-    println!("ok");
-}`
+        "solution": "pub struct DisjointSet {\n    parent: Vec<u32>,\n    size: Vec<u32>,\n    components: usize,\n}\n\nimpl DisjointSet {\n    pub fn new(n: usize) -> Self {\n        Self {\n            parent: (0..n as u32).collect(),\n            size: vec![1; n],\n            components: n,\n        }\n    }\n\n    pub fn find(&mut self, mut x: u32) -> u32 {\n        let mut root = x;\n        while self.parent[root as usize] != root {\n            root = self.parent[root as usize];\n        }\n        while self.parent[x as usize] != root {\n            let next = self.parent[x as usize];\n            self.parent[x as usize] = root;\n            x = next;\n        }\n        root\n    }\n\n    pub fn union(&mut self, a: u32, b: u32) -> bool {\n        let (mut ra, mut rb) = (self.find(a), self.find(b));\n        if ra == rb {\n            return false;\n        }\n        if self.size[ra as usize] < self.size[rb as usize] {\n            std::mem::swap(&mut ra, &mut rb);\n        }\n        self.parent[rb as usize] = ra;\n        self.size[ra as usize] += self.size[rb as usize];\n        self.components -= 1;\n        true\n    }\n\n    pub fn components(&self) -> usize {\n        self.components\n    }\n}\n\npub fn count_provinces(adj: &[Vec<u32>]) -> usize {\n    let mut dsu = DisjointSet::new(adj.len());\n    for (u, neighbors) in adj.iter().enumerate() {\n        for &v in neighbors {\n            if (u as u32) < v {\n                dsu.union(u as u32, v);\n            }\n        }\n    }\n    dsu.components()\n}\n\nfn main() {\n    // 0-1-2 form one cluster, 3-4 another, 5 is isolated.\n    let adj = vec![\n        vec![1],\n        vec![0, 2],\n        vec![1],\n        vec![4],\n        vec![3],\n        vec![],\n    ];\n    assert_eq!(count_provinces(&adj), 3);\n\n    let mut dsu = DisjointSet::new(5);\n    assert!(dsu.union(0, 1));\n    assert!(dsu.union(1, 2));\n    assert!(!dsu.union(0, 2), \"already connected\");\n    assert_eq!(dsu.components(), 3);\n    println!(\"ok\");\n}"
       },
       "questions": [
         {
@@ -3079,8 +1619,7 @@ fn main() {
         "Algorithms that need deletions use a different structure; the limitation is documented."
       ],
       "crates": [
-        "petgraph",
-        "std"
+        "petgraph"
       ],
       "github": [
         {
@@ -3132,38 +1671,7 @@ fn main() {
             "Jobs have a start, a finish, and a weight; chosen jobs must not overlap, and the goal is maximum total weight. Sort by finish time, then define dp[j] as the best weight using the first j jobs. Either job j is excluded, giving dp[j-1], or it is included, giving weight[j] plus the best solution among jobs that finish before job j starts - a prefix that binary search finds in O(log n).",
             "The recurrence is dp[j] = max(dp[j-1], w[j] + dp[p(j)]), computed bottom-up in one pass. The binary search inside the loop makes it O(n log n); precomputing p(j) with a merge-style sweep makes it O(n) after the sort. This is the exact shape the capstone's scheduler needs, and the same recurrence underlies job sequencing with deadlines and RNA secondary structure."
           ],
-          "code": `pub struct Job {
-    pub start: u64,
-    pub finish: u64,
-    pub weight: u64,
-}
-
-/// Maximum total weight of non-overlapping jobs. O(n log n) after sorting.
-pub fn max_weight(mut jobs: Vec<Job>) -> u64 {
-    jobs.sort_unstable_by_key(|job| job.finish);
-
-    // finishes[i] is the finish time of job i; prefix lookups become binary searches.
-    let finishes: Vec<u64> = jobs.iter().map(|job| job.finish).collect();
-    let mut dp = vec![0u64; jobs.len() + 1];
-
-    for (i, job) in jobs.iter().enumerate() {
-        // Number of jobs that finish at or before this job starts.
-        let compatible = finishes.partition_point(|&finish| finish <= job.start);
-        let take = job.weight + dp[compatible];
-        dp[i + 1] = dp[i].max(take);
-    }
-    dp[jobs.len()]
-}
-
-fn main() {
-    let jobs = vec![
-        Job { start: 0, finish: 3, weight: 3 },
-        Job { start: 1, finish: 4, weight: 5 },
-        Job { start: 3, finish: 5, weight: 2 },
-        Job { start: 5, finish: 7, weight: 4 },
-    ];
-    assert_eq!(max_weight(jobs), 9); // jobs 2 and 4, or 1 and 4
-}`,
+          "code": "pub struct Job {\n    pub start: u64,\n    pub finish: u64,\n    pub weight: u64,\n}\n\n/// Maximum total weight of non-overlapping jobs. O(n log n) after sorting.\npub fn max_weight(mut jobs: Vec<Job>) -> u64 {\n    jobs.sort_unstable_by_key(|job| job.finish);\n\n    // finishes[i] is the finish time of job i; prefix lookups become binary searches.\n    let finishes: Vec<u64> = jobs.iter().map(|job| job.finish).collect();\n    let mut dp = vec![0u64; jobs.len() + 1];\n\n    for (i, job) in jobs.iter().enumerate() {\n        // Number of jobs that finish at or before this job starts.\n        let compatible = finishes.partition_point(|&finish| finish <= job.start);\n        let take = job.weight + dp[compatible];\n        dp[i + 1] = dp[i].max(take);\n    }\n    dp[jobs.len()]\n}\n\nfn main() {\n    let jobs = vec![\n        Job { start: 0, finish: 3, weight: 3 },\n        Job { start: 1, finish: 4, weight: 5 },\n        Job { start: 3, finish: 5, weight: 2 },\n        Job { start: 5, finish: 7, weight: 4 },\n    ];\n    assert_eq!(max_weight(jobs), 9); // jobs 2 and 4, or 1 and 4\n}",
           "tip": "Sort by finish, not by start: the recurrence needs the prefix of jobs that are already finished, and that prefix only exists in finish order."
         },
         {
@@ -3172,35 +1680,7 @@ fn main() {
             "A bottom-up table is correct only if every dependency is computed before it is read. Iterating j from 1 to n reads dp[j-1] and dp[p(j)], both smaller indices, so the order works. In 0/1 knapsack, iterating capacity from high to low is what prevents an item from being used twice; the same loop written low to high computes the unbounded version, which is a different problem with a different answer.",
             "When the order is wrong the code still compiles and still returns a number, which is the dangerous part. The defence is to derive the dependency graph of the state and check the loop order against it, then test against a brute-force solution for small inputs. Property tests with random small instances catch order bugs far more reliably than hand-written examples."
           ],
-          "code": `/// 0/1 knapsack: capacity loop runs downwards so each item is used at most once.
-pub fn knapsack(weights: &[u32], values: &[u32], capacity: usize) -> u32 {
-    let mut best = vec![0u32; capacity + 1];
-    for (&w, &v) in weights.iter().zip(values) {
-        let w = w as usize;
-        for c in (w..=capacity).rev() {
-            best[c] = best[c].max(best[c - w] + v);
-        }
-    }
-    best[capacity]
-}
-
-/// Edit distance with two rows: O(n*m) time, O(m) memory.
-pub fn edit_distance(a: &[u8], b: &[u8]) -> usize {
-    let mut previous: Vec<usize> = (0..=b.len()).collect();
-    let mut current = vec![0usize; b.len() + 1];
-
-    for (i, &ca) in a.iter().enumerate() {
-        current[0] = i + 1;
-        for (j, &cb) in b.iter().enumerate() {
-            let substitute = previous[j] + usize::from(ca != cb);
-            let delete = previous[j + 1] + 1;
-            let insert = current[j] + 1;
-            current[j + 1] = substitute.min(delete).min(insert);
-        }
-        std::mem::swap(&mut previous, &mut current);
-    }
-    previous[b.len()]
-}`,
+          "code": "/// 0/1 knapsack: capacity loop runs downwards so each item is used at most once.\npub fn knapsack(weights: &[u32], values: &[u32], capacity: usize) -> u32 {\n    let mut best = vec![0u32; capacity + 1];\n    for (&w, &v) in weights.iter().zip(values) {\n        let w = w as usize;\n        for c in (w..=capacity).rev() {\n            best[c] = best[c].max(best[c - w] + v);\n        }\n    }\n    best[capacity]\n}\n\n/// Edit distance with two rows: O(n*m) time, O(m) memory.\npub fn edit_distance(a: &[u8], b: &[u8]) -> usize {\n    let mut previous: Vec<usize> = (0..=b.len()).collect();\n    let mut current = vec![0usize; b.len() + 1];\n\n    for (i, &ca) in a.iter().enumerate() {\n        current[0] = i + 1;\n        for (j, &cb) in b.iter().enumerate() {\n            let substitute = previous[j] + usize::from(ca != cb);\n            let delete = previous[j + 1] + 1;\n            let insert = current[j] + 1;\n            current[j + 1] = substitute.min(delete).min(insert);\n        }\n        std::mem::swap(&mut previous, &mut current);\n    }\n    previous[b.len()]\n}",
           "tip": "Draw the table dependency before optimising memory. Rolling rows are safe only when the recurrence reads the previous row and the current row's earlier cells."
         },
         {
@@ -3221,70 +1701,7 @@ pub fn edit_distance(a: &[u8], b: &[u8]) -> usize {
         "prompt": "Implement `max_weight(jobs)` for weighted interval scheduling with the binary-search recurrence, then implement `edit_distance(a, b)` with two rows. Add a brute-force subset solver in the test module and compare it with the DP on random small inputs.",
         "starter": "pub struct Job {\n    pub start: u64,\n    pub finish: u64,\n    pub weight: u64,\n}\n\npub fn max_weight(jobs: Vec<Job>) -> u64 {\n    // sort by finish, dp[j] = max(dp[j-1], weight + dp[p(j)])\n    todo!()\n}\n\npub fn edit_distance(a: &[u8], b: &[u8]) -> usize {\n    // two rows, swap after each row\n    todo!()\n}",
         "hint": "p(j) is the count of jobs whose finish is <= job j's start, found with partition_point. For edit distance, current[0] = i + 1 each row, then min(substitute, delete, insert).",
-        "solution": `#[derive(Clone)]
-pub struct Job {
-    pub start: u64,
-    pub finish: u64,
-    pub weight: u64,
-}
-
-pub fn max_weight(mut jobs: Vec<Job>) -> u64 {
-    jobs.sort_unstable_by_key(|job| job.finish);
-    let finishes: Vec<u64> = jobs.iter().map(|job| job.finish).collect();
-    let mut dp = vec![0u64; jobs.len() + 1];
-
-    for (i, job) in jobs.iter().enumerate() {
-        let compatible = finishes.partition_point(|&finish| finish <= job.start);
-        dp[i + 1] = dp[i].max(job.weight + dp[compatible]);
-    }
-    dp[jobs.len()]
-}
-
-pub fn edit_distance(a: &[u8], b: &[u8]) -> usize {
-    let mut previous: Vec<usize> = (0..=b.len()).collect();
-    let mut current = vec![0usize; b.len() + 1];
-
-    for (i, &ca) in a.iter().enumerate() {
-        current[0] = i + 1;
-        for (j, &cb) in b.iter().enumerate() {
-            let substitute = previous[j] + usize::from(ca != cb);
-            let delete = previous[j + 1] + 1;
-            let insert = current[j] + 1;
-            current[j + 1] = substitute.min(delete).min(insert);
-        }
-        std::mem::swap(&mut previous, &mut current);
-    }
-    previous[b.len()]
-}
-
-fn brute_force(jobs: &[Job]) -> u64 {
-    let n = jobs.len();
-    let mut best = 0u64;
-    for mask in 0u32..(1u32 << n) {
-        let mut chosen: Vec<&Job> = (0..n).filter(|i| mask & (1 << i) != 0).map(|i| &jobs[i]).collect();
-        chosen.sort_unstable_by_key(|job| job.start);
-        let overlaps = chosen.windows(2).any(|pair| pair[0].finish > pair[1].start);
-        if !overlaps {
-            best = best.max(chosen.iter().map(|job| job.weight).sum());
-        }
-    }
-    best
-}
-
-fn main() {
-    let jobs = vec![
-        Job { start: 0, finish: 3, weight: 3 },
-        Job { start: 1, finish: 4, weight: 5 },
-        Job { start: 3, finish: 5, weight: 2 },
-        Job { start: 5, finish: 7, weight: 4 },
-    ];
-    assert_eq!(max_weight(jobs.clone()), brute_force(&jobs));
-    assert_eq!(max_weight(jobs), 9);
-
-    assert_eq!(edit_distance(b"kitten", b"sitting"), 3);
-    assert_eq!(edit_distance(b"", b"abc"), 3);
-    println!("ok");
-}`
+        "solution": "#[derive(Clone)]\npub struct Job {\n    pub start: u64,\n    pub finish: u64,\n    pub weight: u64,\n}\n\npub fn max_weight(mut jobs: Vec<Job>) -> u64 {\n    jobs.sort_unstable_by_key(|job| job.finish);\n    let finishes: Vec<u64> = jobs.iter().map(|job| job.finish).collect();\n    let mut dp = vec![0u64; jobs.len() + 1];\n\n    for (i, job) in jobs.iter().enumerate() {\n        let compatible = finishes.partition_point(|&finish| finish <= job.start);\n        dp[i + 1] = dp[i].max(job.weight + dp[compatible]);\n    }\n    dp[jobs.len()]\n}\n\npub fn edit_distance(a: &[u8], b: &[u8]) -> usize {\n    let mut previous: Vec<usize> = (0..=b.len()).collect();\n    let mut current = vec![0usize; b.len() + 1];\n\n    for (i, &ca) in a.iter().enumerate() {\n        current[0] = i + 1;\n        for (j, &cb) in b.iter().enumerate() {\n            let substitute = previous[j] + usize::from(ca != cb);\n            let delete = previous[j + 1] + 1;\n            let insert = current[j] + 1;\n            current[j + 1] = substitute.min(delete).min(insert);\n        }\n        std::mem::swap(&mut previous, &mut current);\n    }\n    previous[b.len()]\n}\n\nfn brute_force(jobs: &[Job]) -> u64 {\n    let n = jobs.len();\n    let mut best = 0u64;\n    for mask in 0u32..(1u32 << n) {\n        let mut chosen: Vec<&Job> = (0..n).filter(|i| mask & (1 << i) != 0).map(|i| &jobs[i]).collect();\n        chosen.sort_unstable_by_key(|job| job.start);\n        let overlaps = chosen.windows(2).any(|pair| pair[0].finish > pair[1].start);\n        if !overlaps {\n            best = best.max(chosen.iter().map(|job| job.weight).sum());\n        }\n    }\n    best\n}\n\nfn main() {\n    let jobs = vec![\n        Job { start: 0, finish: 3, weight: 3 },\n        Job { start: 1, finish: 4, weight: 5 },\n        Job { start: 3, finish: 5, weight: 2 },\n        Job { start: 5, finish: 7, weight: 4 },\n    ];\n    assert_eq!(max_weight(jobs.clone()), brute_force(&jobs));\n    assert_eq!(max_weight(jobs), 9);\n\n    assert_eq!(edit_distance(b\"kitten\", b\"sitting\"), 3);\n    assert_eq!(edit_distance(b\"\", b\"abc\"), 3);\n    println!(\"ok\");\n}"
       },
       "questions": [
         {
@@ -3334,7 +1751,6 @@ fn main() {
         "Recurrences over untrusted-length input are bottom-up, never deep recursion."
       ],
       "crates": [
-        "std",
         "criterion"
       ],
       "github": [
@@ -3393,35 +1809,7 @@ fn main() {
             "Huffman coding builds a prefix-free code by repeatedly merging the two least frequent symbols. The exchange argument: in an optimal tree, the two least frequent symbols can always be placed as siblings at maximum depth, so merging them first loses nothing. A BinaryHeap of Reverse counts implements the merge loop in O(n log n) and computes the total encoded length as the sum of every merge.",
             "Prefix-free matters because decoding is a walk down the tree with no delimiters. The code length for a symbol is its depth, so minimising the weighted path length is exactly minimising the encoded size. Real compressors do more - context modelling, arithmetic coding, block structure - but the entropy-coded back end of many formats still descends from this 1952 algorithm."
           ],
-          "code": `use std::cmp::Reverse;
-use std::collections::BinaryHeap;
-
-/// Total encoded bit length for the given symbol frequencies.
-pub fn huffman_bits(frequencies: &[u64]) -> u64 {
-    let mut heap: BinaryHeap<Reverse<u64>> = frequencies
-        .iter()
-        .copied()
-        .filter(|&f| f > 0)
-        .map(Reverse)
-        .collect();
-
-    let mut total = 0u64;
-    while heap.len() > 1 {
-        let Reverse(a) = heap.pop().expect("len > 1");
-        let Reverse(b) = heap.pop().expect("len > 1");
-        total += a + b; // every merge adds one bit to each symbol below it
-        heap.push(Reverse(a + b));
-    }
-    total
-}
-
-fn main() {
-    // Frequencies 5, 2, 1, 1: merge 1+1=2, then 2+2=4, then 4+5=9 -> 2+4+9 = 15 bits.
-    assert_eq!(huffman_bits(&[5, 2, 1, 1]), 15);
-    // Four equal weights: every symbol ends at depth 2, so 4 * 2 = 8 bits.
-    assert_eq!(huffman_bits(&[1, 1, 1, 1]), 8);
-    println!("{}", huffman_bits(&[9, 4, 2, 2, 1, 1]));
-}`,
+          "code": "use std::cmp::Reverse;\nuse std::collections::BinaryHeap;\n\n/// Total encoded bit length for the given symbol frequencies.\npub fn huffman_bits(frequencies: &[u64]) -> u64 {\n    let mut heap: BinaryHeap<Reverse<u64>> = frequencies\n        .iter()\n        .copied()\n        .filter(|&f| f > 0)\n        .map(Reverse)\n        .collect();\n\n    let mut total = 0u64;\n    while heap.len() > 1 {\n        let Reverse(a) = heap.pop().expect(\"len > 1\");\n        let Reverse(b) = heap.pop().expect(\"len > 1\");\n        total += a + b; // every merge adds one bit to each symbol below it\n        heap.push(Reverse(a + b));\n    }\n    total\n}\n\nfn main() {\n    // Frequencies 5, 2, 1, 1: merge 1+1=2, then 2+2=4, then 4+5=9 -> 2+4+9 = 15 bits.\n    assert_eq!(huffman_bits(&[5, 2, 1, 1]), 15);\n    // Four equal weights: every symbol ends at depth 2, so 4 * 2 = 8 bits.\n    assert_eq!(huffman_bits(&[1, 1, 1, 1]), 8);\n    println!(\"{}\", huffman_bits(&[9, 4, 2, 2, 1, 1]));\n}",
           "tip": "The total is the sum of merge costs, which equals the weighted external path length: no tree construction needed to check the bound."
         },
         {
@@ -3430,37 +1818,7 @@ fn main() {
             "The classic counterexample is 0/1 knapsack: capacity 10, item A weight 6 value 6, item B weight 5 value 5, item C weight 5 value 5. Density-greedy takes A and stops with value 6, while B and C give 10. The same instance solves optimally in the fractional version, which is why the distinction between divisible and indivisible resources appears in every scheduling and packing problem.",
             "A useful test before trusting a greedy: construct two or three adversarial instances by hand and check the greedy answer against brute force. If it survives, look for a matroid structure or an exchange argument; if it does not, you need DP, an approximation guarantee, or an ILP solver. Shipping a greedy with a proven 2-approximation is a legitimate engineering decision, but only if the bound is written down."
           ],
-          "code": `/// Earliest-finish-time interval scheduling: the provably optimal greedy.
-pub fn max_non_overlapping(mut intervals: Vec<(u64, u64)>) -> Vec<(u64, u64)> {
-    intervals.sort_unstable_by_key(|&(_, finish)| finish);
-    let mut chosen: Vec<(u64, u64)> = Vec::new();
-    let mut last_finish = 0u64;
-    for (start, finish) in intervals {
-        if start >= last_finish {
-            chosen.push((start, finish));
-            last_finish = finish;
-        }
-    }
-    chosen
-}
-
-/// Greedy by value density, for the fractional relaxation only.
-pub fn fractional_knapsack(mut items: Vec<(u64, u64)>, capacity: u64) -> f64 {
-    assert!(items.iter().all(|&(weight, _)| weight > 0), "zero weight has infinite density");
-    items.sort_unstable_by(|a, b| (b.1 as f64 / b.0 as f64).total_cmp(&(a.1 as f64 / a.0 as f64)));
-    let mut value = 0.0;
-    let mut remaining = capacity;
-    for (weight, worth) in items {
-        if weight <= remaining {
-            value += worth as f64;
-            remaining -= weight;
-        } else {
-            value += worth as f64 * (remaining as f64 / weight as f64);
-            break;
-        }
-    }
-    value
-}`,
+          "code": "/// Earliest-finish-time interval scheduling: the provably optimal greedy.\npub fn max_non_overlapping(mut intervals: Vec<(u64, u64)>) -> Vec<(u64, u64)> {\n    intervals.sort_unstable_by_key(|&(_, finish)| finish);\n    let mut chosen: Vec<(u64, u64)> = Vec::new();\n    let mut last_finish = 0u64;\n    for (start, finish) in intervals {\n        if start >= last_finish {\n            chosen.push((start, finish));\n            last_finish = finish;\n        }\n    }\n    chosen\n}\n\n/// Greedy by value density, for the fractional relaxation only.\npub fn fractional_knapsack(mut items: Vec<(u64, u64)>, capacity: u64) -> f64 {\n    assert!(items.iter().all(|&(weight, _)| weight > 0), \"zero weight has infinite density\");\n    items.sort_unstable_by(|a, b| (b.1 as f64 / b.0 as f64).total_cmp(&(a.1 as f64 / a.0 as f64)));\n    let mut value = 0.0;\n    let mut remaining = capacity;\n    for (weight, worth) in items {\n        if weight <= remaining {\n            value += worth as f64;\n            remaining -= weight;\n        } else {\n            value += worth as f64 * (remaining as f64 / weight as f64);\n            break;\n        }\n    }\n    value\n}",
           "tip": "Sort with total_cmp on floats, and keep the density comparison as a ratio rather than a precomputed float field."
         },
         {
@@ -3475,59 +1833,7 @@ pub fn fractional_knapsack(mut items: Vec<(u64, u64)>, capacity: u64) -> f64 {
         "prompt": "Implement earliest-finish interval scheduling returning the chosen intervals, then add a brute-force optimum for up to 12 intervals and assert the greedy result is never smaller. Then compute Huffman encoded length for a frequency table and verify it against a hand-computed small example.",
         "starter": "pub fn max_non_overlapping(intervals: Vec<(u64, u64)>) -> Vec<(u64, u64)> {\n    // sort by finish, take what fits\n    todo!()\n}\n\npub fn huffman_bits(frequencies: &[u64]) -> u64 {\n    // min-heap of Reverse counts; total += a + b on every merge\n    todo!()\n}",
         "hint": "Track the finish of the last chosen interval and accept a job when its start is >= that value. For Huffman, pop two, add their sum to the total, push the sum back; the total is the encoded bit length.",
-        "solution": `use std::cmp::Reverse;
-use std::collections::BinaryHeap;
-
-pub fn max_non_overlapping(mut intervals: Vec<(u64, u64)>) -> Vec<(u64, u64)> {
-    intervals.sort_unstable_by_key(|&(_, finish)| finish);
-    let mut chosen = Vec::new();
-    let mut last_finish = 0u64;
-    for (start, finish) in intervals {
-        if start >= last_finish {
-            chosen.push((start, finish));
-            last_finish = finish;
-        }
-    }
-    chosen
-}
-
-pub fn huffman_bits(frequencies: &[u64]) -> u64 {
-    let mut heap: BinaryHeap<Reverse<u64>> =
-        frequencies.iter().copied().filter(|&f| f > 0).map(Reverse).collect();
-    let mut total = 0u64;
-    while heap.len() > 1 {
-        let Reverse(a) = heap.pop().unwrap();
-        let Reverse(b) = heap.pop().unwrap();
-        total += a + b;
-        heap.push(Reverse(a + b));
-    }
-    total
-}
-
-fn brute_force(intervals: &[(u64, u64)]) -> usize {
-    let n = intervals.len();
-    let mut best = 0usize;
-    for mask in 0u32..(1u32 << n) {
-        let mut chosen: Vec<(u64, u64)> =
-            (0..n).filter(|i| mask & (1 << i) != 0).map(|i| intervals[i]).collect();
-        chosen.sort_unstable_by_key(|&(_, finish)| finish);
-        if chosen.windows(2).all(|pair| pair[0].1 <= pair[1].0) {
-            best = best.max(chosen.len());
-        }
-    }
-    best
-}
-
-fn main() {
-    let intervals = vec![(1, 4), (3, 5), (0, 6), (5, 7), (3, 9), (5, 9), (6, 10), (8, 11)];
-    let greedy = max_non_overlapping(intervals.clone());
-    assert_eq!(greedy.len(), brute_force(&intervals));
-    assert_eq!(greedy, vec![(1, 4), (5, 7), (8, 11)]);
-
-    // Frequencies 5, 2, 1, 1: merge 1+1=2, then 2+2=4, then 4+5=9 -> 2+4+9 = 15 bits.
-    assert_eq!(huffman_bits(&[5, 2, 1, 1]), 15);
-    println!("ok");
-}`
+        "solution": "use std::cmp::Reverse;\nuse std::collections::BinaryHeap;\n\npub fn max_non_overlapping(mut intervals: Vec<(u64, u64)>) -> Vec<(u64, u64)> {\n    intervals.sort_unstable_by_key(|&(_, finish)| finish);\n    let mut chosen = Vec::new();\n    let mut last_finish = 0u64;\n    for (start, finish) in intervals {\n        if start >= last_finish {\n            chosen.push((start, finish));\n            last_finish = finish;\n        }\n    }\n    chosen\n}\n\npub fn huffman_bits(frequencies: &[u64]) -> u64 {\n    let mut heap: BinaryHeap<Reverse<u64>> =\n        frequencies.iter().copied().filter(|&f| f > 0).map(Reverse).collect();\n    let mut total = 0u64;\n    while heap.len() > 1 {\n        let Reverse(a) = heap.pop().unwrap();\n        let Reverse(b) = heap.pop().unwrap();\n        total += a + b;\n        heap.push(Reverse(a + b));\n    }\n    total\n}\n\nfn brute_force(intervals: &[(u64, u64)]) -> usize {\n    let n = intervals.len();\n    let mut best = 0usize;\n    for mask in 0u32..(1u32 << n) {\n        let mut chosen: Vec<(u64, u64)> =\n            (0..n).filter(|i| mask & (1 << i) != 0).map(|i| intervals[i]).collect();\n        chosen.sort_unstable_by_key(|&(_, finish)| finish);\n        if chosen.windows(2).all(|pair| pair[0].1 <= pair[1].0) {\n            best = best.max(chosen.len());\n        }\n    }\n    best\n}\n\nfn main() {\n    let intervals = vec![(1, 4), (3, 5), (0, 6), (5, 7), (3, 9), (5, 9), (6, 10), (8, 11)];\n    let greedy = max_non_overlapping(intervals.clone());\n    assert_eq!(greedy.len(), brute_force(&intervals));\n    assert_eq!(greedy, vec![(1, 4), (5, 7), (8, 11)]);\n\n    // Frequencies 5, 2, 1, 1: merge 1+1=2, then 2+2=4, then 4+5=9 -> 2+4+9 = 15 bits.\n    assert_eq!(huffman_bits(&[5, 2, 1, 1]), 15);\n    println!(\"ok\");\n}"
       },
       "questions": [
         {
@@ -3577,7 +1883,6 @@ fn main() {
         "Float comparisons in ordering use total_cmp, never partial_cmp().unwrap()."
       ],
       "crates": [
-        "std",
         "priority-queue"
       ],
       "github": [
@@ -3623,24 +1928,7 @@ fn main() {
             "Backtracking enumerates candidates while maintaining a partial solution. At each level you choose, recurse, then undo the choice, which is why the pattern is choose-explore-unchoose. Permutations swap an element into position, combinations advance a start index, and N-queens places one queen per row. The complexity is the size of the tree, so every improvement comes from making the tree smaller, not from making the loop faster.",
             "Undo must be exact. A Vec push paired with pop is safe; a bitmask OR paired with a mask argument passed by value is safe; mutating shared state and forgetting to restore it produces answers that depend on traversal order, which is the classic backtracking bug. Passing the partial state by value where it is cheap - a u32 of used columns - removes the whole class of mistakes."
           ],
-          "code": `/// All permutations, generated by swapping into position and swapping back.
-pub fn permutations(xs: &mut [u32]) -> Vec<Vec<u32>> {
-    fn walk(xs: &mut [u32], k: usize, out: &mut Vec<Vec<u32>>) {
-        if k == xs.len() {
-            out.push(xs.to_vec());
-            return;
-        }
-        for i in k..xs.len() {
-            xs.swap(k, i);
-            walk(xs, k + 1, out);
-            xs.swap(k, i); // undo: without this, later branches see a corrupted array
-        }
-    }
-
-    let mut out = Vec::new();
-    walk(xs, 0, &mut out);
-    out
-}`,
+          "code": "/// All permutations, generated by swapping into position and swapping back.\npub fn permutations(xs: &mut [u32]) -> Vec<Vec<u32>> {\n    fn walk(xs: &mut [u32], k: usize, out: &mut Vec<Vec<u32>>) {\n        if k == xs.len() {\n            out.push(xs.to_vec());\n            return;\n        }\n        for i in k..xs.len() {\n            xs.swap(k, i);\n            walk(xs, k + 1, out);\n            xs.swap(k, i); // undo: without this, later branches see a corrupted array\n        }\n    }\n\n    let mut out = Vec::new();\n    walk(xs, 0, &mut out);\n    out\n}",
           "tip": "Undo operations must mirror the choice exactly. Every swap gets a swap back; every push gets a pop."
         },
         {
@@ -3649,38 +1937,7 @@ pub fn permutations(xs: &mut [u32]) -> Vec<Vec<u32>> {
             "N-queens places one queen per row with no two sharing a column or diagonal. A naive search tries all n columns per row and checks conflicts, which is O(n!) with a large constant. Representing occupied columns, down-diagonals, and up-diagonals as three u32 bitmasks turns conflict checking into three ORs and a NOT, and the free positions into a single AND against the row mask.",
             "The diagonal masks shift by one each row: a down-diagonal keeps its column index, so shifting left moves the attack pattern to the next row. Each set bit is one candidate; clearing the lowest set bit with x & x.wrapping_neg() enumerates them without a loop over columns. Counting all solutions for n = 8 becomes microseconds, and n = 12 is still interactive."
           ],
-          "code": `/// Count N-queens solutions with column and diagonal bitmasks.
-pub fn count_n_queens(n: u32) -> u64 {
-    fn place(n: u32, cols: u32, down: u32, up: u32, count: &mut u64) {
-        let full = (1u32 << n) - 1;
-        let mut free = !(cols | down | up) & full;
-        if free == 0 {
-            return;
-        }
-        while free != 0 {
-            let bit = free & free.wrapping_neg(); // lowest set bit
-            free ^= bit;
-            let next_cols = cols | bit;
-            let next_down = (down | bit) << 1;
-            let next_up = (up | bit) >> 1;
-            if next_cols == full {
-                *count += 1;
-            } else {
-                place(n, next_cols, next_down, next_up, count);
-            }
-        }
-    }
-
-    let mut count = 0u64;
-    place(n, 0, 0, 0, &mut count);
-    count
-}
-
-fn main() {
-    assert_eq!(count_n_queens(8), 92);
-    assert_eq!(count_n_queens(4), 2);
-    println!("{}", count_n_queens(12));
-}`,
+          "code": "/// Count N-queens solutions with column and diagonal bitmasks.\npub fn count_n_queens(n: u32) -> u64 {\n    fn place(n: u32, cols: u32, down: u32, up: u32, count: &mut u64) {\n        let full = (1u32 << n) - 1;\n        let mut free = !(cols | down | up) & full;\n        if free == 0 {\n            return;\n        }\n        while free != 0 {\n            let bit = free & free.wrapping_neg(); // lowest set bit\n            free ^= bit;\n            let next_cols = cols | bit;\n            let next_down = (down | bit) << 1;\n            let next_up = (up | bit) >> 1;\n            if next_cols == full {\n                *count += 1;\n            } else {\n                place(n, next_cols, next_down, next_up, count);\n            }\n        }\n    }\n\n    let mut count = 0u64;\n    place(n, 0, 0, 0, &mut count);\n    count\n}\n\nfn main() {\n    assert_eq!(count_n_queens(8), 92);\n    assert_eq!(count_n_queens(4), 2);\n    println!(\"{}\", count_n_queens(12));\n}",
           "tip": "free & free.wrapping_neg() isolates the lowest set bit; free &= free - 1 is the same trick without the negation."
         },
         {
@@ -3708,65 +1965,7 @@ fn main() {
         "prompt": "Implement `count_n_queens(n: u32) -> u64` with three bitmasks and no board allocation, then generalise it to `first_solution(n: u32) -> Option<Vec<u32>>` returning the column of the queen in each row.",
         "starter": "pub fn count_n_queens(n: u32) -> u64 {\n    // cols, down, up masks; lowest-set-bit enumeration\n    todo!()\n}\n\npub fn first_solution(n: u32) -> Option<Vec<u32>> {\n    // same search, but records the chosen column per row and returns on success\n    todo!()",
         "hint": "Track placed = cols | down | up. A column is free when the corresponding bit is 0 in all three; shift down left and up right on the way down. For first_solution, push the bit index into a path Vec and pop on backtrack.",
-        "solution": `pub fn count_n_queens(n: u32) -> u64 {
-    fn place(n: u32, full: u32, cols: u32, down: u32, up: u32, count: &mut u64) {
-        let mut free = !(cols | down | up) & full;
-        while free != 0 {
-            let bit = free & free.wrapping_neg();
-            free ^= bit;
-            let next_cols = cols | bit;
-            if next_cols == full {
-                *count += 1;
-            } else {
-                place(n, full, next_cols, (down | bit) << 1, (up | bit) >> 1, count);
-            }
-        }
-    }
-
-    let mut count = 0u64;
-    let full = (1u32 << n) - 1;
-    place(n, full, 0, 0, 0, &mut count);
-    count
-}
-
-pub fn first_solution(n: u32) -> Option<Vec<u32>> {
-    fn place(
-        n: u32,
-        full: u32,
-        cols: u32,
-        down: u32,
-        up: u32,
-        path: &mut Vec<u32>,
-    ) -> Option<Vec<u32>> {
-        let mut free = !(cols | down | up) & full;
-        while free != 0 {
-            let bit = free & free.wrapping_neg();
-            free ^= bit;
-            let column = bit.trailing_zeros();
-            let next_cols = cols | bit;
-            path.push(column);
-            if next_cols == full {
-                return Some(path.clone());
-            }
-            if let Some(solution) = place(n, full, next_cols, (down | bit) << 1, (up | bit) >> 1, path) {
-                return Some(solution);
-            }
-            path.pop();
-        }
-        None
-    }
-
-    let mut path = Vec::new();
-    place(n, (1u32 << n) - 1, 0, 0, 0, &mut path)
-}
-
-fn main() {
-    assert_eq!(count_n_queens(8), 92);
-    assert_eq!(count_n_queens(6), 4);
-    assert_eq!(first_solution(4), Some(vec![1, 3, 0, 2]));
-    assert_eq!(count_n_queens(0), 0);
-    println!("ok");
-}`
+        "solution": "pub fn count_n_queens(n: u32) -> u64 {\n    fn place(n: u32, full: u32, cols: u32, down: u32, up: u32, count: &mut u64) {\n        let mut free = !(cols | down | up) & full;\n        while free != 0 {\n            let bit = free & free.wrapping_neg();\n            free ^= bit;\n            let next_cols = cols | bit;\n            if next_cols == full {\n                *count += 1;\n            } else {\n                place(n, full, next_cols, (down | bit) << 1, (up | bit) >> 1, count);\n            }\n        }\n    }\n\n    let mut count = 0u64;\n    let full = (1u32 << n) - 1;\n    place(n, full, 0, 0, 0, &mut count);\n    count\n}\n\npub fn first_solution(n: u32) -> Option<Vec<u32>> {\n    fn place(\n        n: u32,\n        full: u32,\n        cols: u32,\n        down: u32,\n        up: u32,\n        path: &mut Vec<u32>,\n    ) -> Option<Vec<u32>> {\n        let mut free = !(cols | down | up) & full;\n        while free != 0 {\n            let bit = free & free.wrapping_neg();\n            free ^= bit;\n            let column = bit.trailing_zeros();\n            let next_cols = cols | bit;\n            path.push(column);\n            if next_cols == full {\n                return Some(path.clone());\n            }\n            if let Some(solution) = place(n, full, next_cols, (down | bit) << 1, (up | bit) >> 1, path) {\n                return Some(solution);\n            }\n            path.pop();\n        }\n        None\n    }\n\n    let mut path = Vec::new();\n    place(n, (1u32 << n) - 1, 0, 0, 0, &mut path)\n}\n\nfn main() {\n    assert_eq!(count_n_queens(8), 92);\n    assert_eq!(count_n_queens(6), 4);\n    assert_eq!(first_solution(4), Some(vec![1, 3, 0, 2]));\n    assert_eq!(count_n_queens(0), 0);\n    println!(\"ok\");\n}"
       },
       "questions": [
         {
@@ -3816,7 +2015,6 @@ fn main() {
         "Symmetry breaking and heuristics are behind flags with correctness tests against the naive solver."
       ],
       "crates": [
-        "std",
         "smallvec"
       ],
       "github": [
@@ -3862,29 +2060,7 @@ fn main() {
             "A Rust String is a Vec<u8> that is guaranteed to be valid UTF-8, and &str indexing is by byte offset. len() returns bytes, not characters; chars().count() is O(n); and slicing at a non-boundary panics. That panic is a real production failure: truncating a user's name to 32 bytes with &name[..32] crashes whenever byte 32 lands inside a multi-byte code point.",
             "The safe primitives are is_char_boundary, char_indices, and floor_char_boundary-style loops that walk back to a boundary. If you need a display width, use a crate that understands grapheme clusters, because even char count is wrong for emoji with modifiers. Treat byte offsets as the only cheap index, and convert to character positions only when the output actually needs them."
           ],
-          "code": `/// Truncate to at most max_bytes without splitting a UTF-8 code point.
-pub fn truncate_on_boundary(s: &str, max_bytes: usize) -> &str {
-    if max_bytes >= s.len() {
-        return s;
-    }
-    let mut end = max_bytes;
-    while end > 0 && !s.is_char_boundary(end) {
-        end -= 1;
-    }
-    &s[..end]
-}
-
-fn main() {
-    let s = "héllo wörld";
-    assert_eq!(s.len(), 13); // two 2-byte characters
-    assert_eq!(s.chars().count(), 11);
-
-    for cut in 0..=s.len() {
-        let t = truncate_on_boundary(s, cut);
-        assert!(s.starts_with(t), "truncation must not split a code point");
-    }
-    println!("{}", truncate_on_boundary(s, 2)); // "h"
-}`,
+          "code": "/// Truncate to at most max_bytes without splitting a UTF-8 code point.\npub fn truncate_on_boundary(s: &str, max_bytes: usize) -> &str {\n    if max_bytes >= s.len() {\n        return s;\n    }\n    let mut end = max_bytes;\n    while end > 0 && !s.is_char_boundary(end) {\n        end -= 1;\n    }\n    &s[..end]\n}\n\nfn main() {\n    let s = \"héllo wörld\";\n    assert_eq!(s.len(), 13); // two 2-byte characters\n    assert_eq!(s.chars().count(), 11);\n\n    for cut in 0..=s.len() {\n        let t = truncate_on_boundary(s, cut);\n        assert!(s.starts_with(t), \"truncation must not split a code point\");\n    }\n    println!(\"{}\", truncate_on_boundary(s, 2)); // \"h\"\n}",
           "tip": "Never index a &str with a length from a byte counter. Use is_char_boundary, or the str::floor_char_boundary method where available."
         },
         {
@@ -3893,25 +2069,7 @@ fn main() {
             "str::find returns a byte offset, and for a multi-byte pattern it uses a substring searcher that is already quite good. For single-byte searches - delimiters, quotes, newlines - memchr is much faster because it compares 32 bytes per instruction with SIMD. Parsers that scan for one character at a time should use memchr::memchr or memchr_iter, not chars().position().",
             "Case-insensitive matching is where naive code goes wrong. to_lowercase allocates and can change length; Unicode case folding has rules that ASCII lowercasing ignores. For protocol tokens and ASCII identifiers, eq_ignore_ascii_case is correct and allocation-free. For human text, use a Unicode-aware crate and decide explicitly whether you need case folding or case conversion, because they answer different questions."
           ],
-          "code": `/// Split on a byte delimiter without allocating per field.
-pub fn split_lines(payload: &[u8]) -> Vec<&[u8]> {
-    let mut fields = Vec::new();
-    let mut start = 0usize;
-    while let Some(offset) = memchr::memchr(b'\\n', &payload[start..]) {
-        let end = start + offset;
-        fields.push(&payload[start..end]);
-        start = end + 1;
-    }
-    fields.push(&payload[start..]);
-    fields
-}
-
-/// ASCII case-insensitive comparison, no allocation.
-pub fn is_http_method(token: &str) -> bool {
-    ["GET", "POST", "PUT", "DELETE", "HEAD"]
-        .iter()
-        .any(|known| token.eq_ignore_ascii_case(known))
-}`,
+          "code": "/// Split on a byte delimiter without allocating per field.\npub fn split_lines(payload: &[u8]) -> Vec<&[u8]> {\n    let mut fields = Vec::new();\n    let mut start = 0usize;\n    while let Some(offset) = memchr::memchr(b'\\n', &payload[start..]) {\n        let end = start + offset;\n        fields.push(&payload[start..end]);\n        start = end + 1;\n    }\n    fields.push(&payload[start..]);\n    fields\n}\n\n/// ASCII case-insensitive comparison, no allocation.\npub fn is_http_method(token: &str) -> bool {\n    [\"GET\", \"POST\", \"PUT\", \"DELETE\", \"HEAD\"]\n        .iter()\n        .any(|known| token.eq_ignore_ascii_case(known))\n}",
           "tip": "memchr returns an offset relative to the slice you passed, so add the slice start before advancing."
         },
         {
@@ -3920,45 +2078,7 @@ pub fn is_http_method(token: &str) -> bool {
             "The naive substring search restarts from scratch after each mismatch, which is O(nm) on inputs like aaaaaaaab with pattern aaaab. KMP precomputes a prefix function - the length of the longest proper prefix that is also a suffix for every pattern prefix - and uses it to fall back without re-reading the text. The result is O(n + m) with O(m) extra memory, and the fallback logic is the same idea behind Aho-Corasick's failure links.",
             "In practice, std's find and memchr's substring search use SIMD-accelerated algorithms that beat KMP on typical inputs. KMP's value is the guarantee and the technique: when you need streaming search where the text cannot be rewound, or when you are building failure links for a multi-pattern automaton, the prefix function is the tool. Implement it once to understand it, then use the library in production unless you need the streaming property."
           ],
-          "code": `/// Prefix function: pi[i] = length of the longest proper prefix of pattern[..=i]
-/// that is also a suffix of pattern[..=i].
-pub fn prefix_function(pattern: &[u8]) -> Vec<usize> {
-    let mut pi = vec![0usize; pattern.len()];
-    let mut k = 0usize;
-    for i in 1..pattern.len() {
-        while k > 0 && pattern[i] != pattern[k] {
-            k = pi[k - 1];
-        }
-        if pattern[i] == pattern[k] {
-            k += 1;
-        }
-        pi[i] = k;
-    }
-    pi
-}
-
-/// All start offsets of needle in haystack, in O(n + m).
-pub fn find_all(haystack: &[u8], needle: &[u8]) -> Vec<usize> {
-    if needle.is_empty() {
-        return (0..=haystack.len()).collect();
-    }
-    let pi = prefix_function(needle);
-    let mut hits = Vec::new();
-    let mut k = 0usize;
-    for (i, &byte) in haystack.iter().enumerate() {
-        while k > 0 && byte != needle[k] {
-            k = pi[k - 1];
-        }
-        if byte == needle[k] {
-            k += 1;
-        }
-        if k == needle.len() {
-            hits.push(i + 1 - k);
-            k = pi[k - 1]; // allow overlapping matches
-        }
-    }
-    hits
-}`,
+          "code": "/// Prefix function: pi[i] = length of the longest proper prefix of pattern[..=i]\n/// that is also a suffix of pattern[..=i].\npub fn prefix_function(pattern: &[u8]) -> Vec<usize> {\n    let mut pi = vec![0usize; pattern.len()];\n    let mut k = 0usize;\n    for i in 1..pattern.len() {\n        while k > 0 && pattern[i] != pattern[k] {\n            k = pi[k - 1];\n        }\n        if pattern[i] == pattern[k] {\n            k += 1;\n        }\n        pi[i] = k;\n    }\n    pi\n}\n\n/// All start offsets of needle in haystack, in O(n + m).\npub fn find_all(haystack: &[u8], needle: &[u8]) -> Vec<usize> {\n    if needle.is_empty() {\n        return (0..=haystack.len()).collect();\n    }\n    let pi = prefix_function(needle);\n    let mut hits = Vec::new();\n    let mut k = 0usize;\n    for (i, &byte) in haystack.iter().enumerate() {\n        while k > 0 && byte != needle[k] {\n            k = pi[k - 1];\n        }\n        if byte == needle[k] {\n            k += 1;\n        }\n        if k == needle.len() {\n            hits.push(i + 1 - k);\n            k = pi[k - 1]; // allow overlapping matches\n        }\n    }\n    hits\n}",
           "tip": "After a match, fall back to pi[k-1] rather than resetting to zero, or overlapping occurrences are missed."
         },
         {
@@ -3973,66 +2093,7 @@ pub fn find_all(haystack: &[u8], needle: &[u8]) -> Vec<usize> {
         "prompt": "Implement `truncate_on_boundary` and `find_all` (KMP). Then verify with a test that a haystack of repeated characters returns every overlapping match, and that truncation at every byte offset never panics on multibyte text.",
         "starter": "pub fn truncate_on_boundary(s: &str, max_bytes: usize) -> &str {\n    todo!()\n}\n\npub fn prefix_function(pattern: &[u8]) -> Vec<usize> {\n    todo!()\n}\n\npub fn find_all(haystack: &[u8], needle: &[u8]) -> Vec<usize> {\n    todo!()\n}",
         "hint": "For truncation, walk end backwards while !s.is_char_boundary(end). For KMP, build pi first, then scan the haystack maintaining k; on a full match push i+1-k and set k = pi[k-1].",
-        "solution": `pub fn truncate_on_boundary(s: &str, max_bytes: usize) -> &str {
-    if max_bytes >= s.len() {
-        return s;
-    }
-    let mut end = max_bytes;
-    while end > 0 && !s.is_char_boundary(end) {
-        end -= 1;
-    }
-    &s[..end]
-}
-
-pub fn prefix_function(pattern: &[u8]) -> Vec<usize> {
-    let mut pi = vec![0usize; pattern.len()];
-    let mut k = 0usize;
-    for i in 1..pattern.len() {
-        while k > 0 && pattern[i] != pattern[k] {
-            k = pi[k - 1];
-        }
-        if pattern[i] == pattern[k] {
-            k += 1;
-        }
-        pi[i] = k;
-    }
-    pi
-}
-
-pub fn find_all(haystack: &[u8], needle: &[u8]) -> Vec<usize> {
-    if needle.is_empty() {
-        return (0..=haystack.len()).collect();
-    }
-    let pi = prefix_function(needle);
-    let mut hits = Vec::new();
-    let mut k = 0usize;
-    for (i, &byte) in haystack.iter().enumerate() {
-        while k > 0 && byte != needle[k] {
-            k = pi[k - 1];
-        }
-        if byte == needle[k] {
-            k += 1;
-        }
-        if k == needle.len() {
-            hits.push(i + 1 - k);
-            k = pi[k - 1];
-        }
-    }
-    hits
-}
-
-fn main() {
-    assert_eq!(find_all(b"aaaaa", b"aa"), vec![0, 1, 2, 3]);
-    assert_eq!(find_all(b"abababa", b"aba"), vec![0, 2, 4]);
-    assert_eq!(find_all(b"abc", b"d"), Vec::<usize>::new());
-
-    let text = "héllo wörld";
-    for cut in 0..=text.len() {
-        let truncated = truncate_on_boundary(text, cut);
-        assert!(text.starts_with(truncated));
-    }
-    println!("ok");
-}`
+        "solution": "pub fn truncate_on_boundary(s: &str, max_bytes: usize) -> &str {\n    if max_bytes >= s.len() {\n        return s;\n    }\n    let mut end = max_bytes;\n    while end > 0 && !s.is_char_boundary(end) {\n        end -= 1;\n    }\n    &s[..end]\n}\n\npub fn prefix_function(pattern: &[u8]) -> Vec<usize> {\n    let mut pi = vec![0usize; pattern.len()];\n    let mut k = 0usize;\n    for i in 1..pattern.len() {\n        while k > 0 && pattern[i] != pattern[k] {\n            k = pi[k - 1];\n        }\n        if pattern[i] == pattern[k] {\n            k += 1;\n        }\n        pi[i] = k;\n    }\n    pi\n}\n\npub fn find_all(haystack: &[u8], needle: &[u8]) -> Vec<usize> {\n    if needle.is_empty() {\n        return (0..=haystack.len()).collect();\n    }\n    let pi = prefix_function(needle);\n    let mut hits = Vec::new();\n    let mut k = 0usize;\n    for (i, &byte) in haystack.iter().enumerate() {\n        while k > 0 && byte != needle[k] {\n            k = pi[k - 1];\n        }\n        if byte == needle[k] {\n            k += 1;\n        }\n        if k == needle.len() {\n            hits.push(i + 1 - k);\n            k = pi[k - 1];\n        }\n    }\n    hits\n}\n\nfn main() {\n    assert_eq!(find_all(b\"aaaaa\", b\"aa\"), vec![0, 1, 2, 3]);\n    assert_eq!(find_all(b\"abababa\", b\"aba\"), vec![0, 2, 4]);\n    assert_eq!(find_all(b\"abc\", b\"d\"), Vec::<usize>::new());\n\n    let text = \"héllo wörld\";\n    for cut in 0..=text.len() {\n        let truncated = truncate_on_boundary(text, cut);\n        assert!(text.starts_with(truncated));\n    }\n    println!(\"ok\");\n}"
       },
       "questions": [
         {
@@ -4083,8 +2144,7 @@ fn main() {
       ],
       "crates": [
         "memchr",
-        "regex",
-        "std"
+        "regex"
       ],
       "github": [
         {
@@ -4133,34 +2193,7 @@ fn main() {
             "Rust has the usual bitwise operators on unsigned integers, plus inherent methods that express intent: count_ones is popcount, leading_zeros and trailing_zeros locate the highest and lowest set bit, reverse_bits mirrors the word, and rotate_left rotates. These compile to single instructions on x86_64 and aarch64, so they are always preferable to hand-written loops that the optimiser may or may not recognise.",
             "Shifts are the sharp edge. In debug builds, shifting by a value greater than or equal to the bit width panics; in release the shift amount is masked, so a 64-bit shift by 64 becomes a shift by 0 and returns the original value. Use checked_shl and checked_shr when the amount is data-dependent, or assert it once at the boundary. Masking with (1u32 << n) - 1 also breaks when n == 32; use u64 or the full-mask special case."
           ],
-          "code": `/// Bit helpers that behave the same in debug and release builds.
-pub fn low_bit(x: u64) -> u64 {
-    x & x.wrapping_neg()
-}
-
-pub fn clear_lowest(x: u64) -> u64 {
-    x & (x - 1)
-}
-
-pub fn is_power_of_two(x: u64) -> bool {
-    x != 0 && x & (x - 1) == 0
-}
-
-pub fn mask_of(n: u32) -> u64 {
-    if n >= 64 { u64::MAX } else { (1u64 << n) - 1 }
-}
-
-fn main() {
-    assert_eq!(low_bit(0b1011_0000), 0b0001_0000);
-    assert_eq!(clear_lowest(0b1011_0000), 0b1010_0000);
-    assert!(is_power_of_two(1 << 20));
-    assert!(!is_power_of_two(0));
-    assert_eq!(mask_of(64), u64::MAX);
-
-    // A data-dependent shift must be checked, not assumed.
-    assert_eq!(1u64.checked_shl(64), None);
-    println!("ok");
-}`,
+          "code": "/// Bit helpers that behave the same in debug and release builds.\npub fn low_bit(x: u64) -> u64 {\n    x & x.wrapping_neg()\n}\n\npub fn clear_lowest(x: u64) -> u64 {\n    x & (x - 1)\n}\n\npub fn is_power_of_two(x: u64) -> bool {\n    x != 0 && x & (x - 1) == 0\n}\n\npub fn mask_of(n: u32) -> u64 {\n    if n >= 64 { u64::MAX } else { (1u64 << n) - 1 }\n}\n\nfn main() {\n    assert_eq!(low_bit(0b1011_0000), 0b0001_0000);\n    assert_eq!(clear_lowest(0b1011_0000), 0b1010_0000);\n    assert!(is_power_of_two(1 << 20));\n    assert!(!is_power_of_two(0));\n    assert_eq!(mask_of(64), u64::MAX);\n\n    // A data-dependent shift must be checked, not assumed.\n    assert_eq!(1u64.checked_shl(64), None);\n    println!(\"ok\");\n}",
           "tip": "x & x.wrapping_neg() isolates the lowest set bit; x & (x - 1) clears it. Both are one instruction and both appear everywhere in bitmask code."
         },
         {
@@ -4169,44 +2202,7 @@ fn main() {
             "For a mask m, the submasks are all s with s & m == s. Instead of iterating 0..2^n and filtering, the trick s = (s - 1) & m walks every submask in decreasing order and terminates after zero. The total work over all masks is 3^n, which sounds large until you compare it with 4^n for the filter-everything version; for n = 20 the difference is minutes versus hours.",
             "The same structure appears in SOS (sum over subsets) DP, where you push information from a submask to its supersets, and in the inclusion-exclusion computations behind counting problems. Whenever an algorithm says sum over all subsets, this enumeration is how it is implemented without allocating."
           ],
-          "code": `/// weights[i] is the value of element i. Sums every submask of every mask: O(3^n).
-pub fn submask_sums(n: usize, weights: &[u64]) -> Vec<u64> {
-    assert!(n < 24, "3^n enumeration needs a small n");
-    assert_eq!(weights.len(), n);
-
-    // bit_value[mask] = sum of weights of the bits set in mask.
-    let size = 1usize << n;
-    let mut bit_value = vec![0u64; size];
-    for mask in 1..size {
-        let low = mask & mask.wrapping_neg();
-        let bit = low.trailing_zeros() as usize;
-        bit_value[mask] = bit_value[mask ^ low] + weights[bit];
-    }
-
-    let mut sums = vec![0u64; size];
-    for mask in 0..size {
-        let mut total = 0u64;
-        let mut sub = mask;
-        loop {
-            total += bit_value[sub];
-            if sub == 0 {
-                break;
-            }
-            sub = (sub - 1) & mask;
-        }
-        sums[mask] = total;
-    }
-    sums
-}
-
-fn main() {
-    let sums = submask_sums(4, &[1, 10, 100, 1000]);
-    // Submasks of {0,1,2} sum to 0+1+10+100+11+101+110+111 = 444.
-    assert_eq!(sums[0b0111], 444);
-    // Each weight appears in exactly half of the 16 subsets.
-    assert_eq!(sums[0b1111], 8 * (1 + 10 + 100 + 1000));
-    println!("{}", sums[0b1111]);
-}`,
+          "code": "/// weights[i] is the value of element i. Sums every submask of every mask: O(3^n).\npub fn submask_sums(n: usize, weights: &[u64]) -> Vec<u64> {\n    assert!(n < 24, \"3^n enumeration needs a small n\");\n    assert_eq!(weights.len(), n);\n\n    // bit_value[mask] = sum of weights of the bits set in mask.\n    let size = 1usize << n;\n    let mut bit_value = vec![0u64; size];\n    for mask in 1..size {\n        let low = mask & mask.wrapping_neg();\n        let bit = low.trailing_zeros() as usize;\n        bit_value[mask] = bit_value[mask ^ low] + weights[bit];\n    }\n\n    let mut sums = vec![0u64; size];\n    for mask in 0..size {\n        let mut total = 0u64;\n        let mut sub = mask;\n        loop {\n            total += bit_value[sub];\n            if sub == 0 {\n                break;\n            }\n            sub = (sub - 1) & mask;\n        }\n        sums[mask] = total;\n    }\n    sums\n}\n\nfn main() {\n    let sums = submask_sums(4, &[1, 10, 100, 1000]);\n    // Submasks of {0,1,2} sum to 0+1+10+100+11+101+110+111 = 444.\n    assert_eq!(sums[0b0111], 444);\n    // Each weight appears in exactly half of the 16 subsets.\n    assert_eq!(sums[0b1111], 8 * (1 + 10 + 100 + 1000));\n    println!(\"{}\", sums[0b1111]);\n}",
           "tip": "The loop body must run for sub == 0 as well, so break after processing zero rather than using a while condition."
         },
         {
@@ -4215,48 +2211,7 @@ fn main() {
             "Held-Karp solves TSP in O(2^n * n^2) by defining dp[mask][last] as the cheapest path that visits exactly the cities in mask and ends at last. The transition appends an unvisited city, and the answer closes the tour back to the start. For n = 20 that is about a million masks times 20 endpoints, which fits in memory and runs in seconds; for n = 25 it is already impractical, and that boundary is the whole lesson.",
             "Before writing it, check that n is small and that the state needs the whole set. Many problems that look like TSP are actually assignment problems solvable in O(n^3) by the Hungarian algorithm, or shortest paths solvable in O(n^3) by Floyd-Warshall. Bitmask DP is the right tool when visitation history genuinely matters, not as a default for anything with a set in the statement."
           ],
-          "code": `/// Held-Karp TSP: cost[i][j] is the direct cost from i to j, diagonal zero.
-/// Returns None when n is too large or there is no tour.
-pub fn tsp(cost: &[Vec<u64>]) -> Option<u64> {
-    let n = cost.len();
-    if n == 0 {
-        return None;
-    }
-    if n > 22 {
-        return None; // 2^22 * 22 states is the practical ceiling
-    }
-
-    let states = 1usize << n;
-    let mut dp = vec![vec![u64::MAX; n]; states];
-    dp[1][0] = 0; // start at city 0, only city 0 visited
-
-    for mask in 1..states {
-        for last in 0..n {
-            if dp[mask][last] == u64::MAX || mask & (1 << last) == 0 {
-                continue;
-            }
-            for next in 0..n {
-                if mask & (1 << next) != 0 {
-                    continue;
-                }
-                let next_mask = mask | (1 << next);
-                let candidate = dp[mask][last] + cost[last][next];
-                if candidate < dp[next_mask][next] {
-                    dp[next_mask][next] = candidate;
-                }
-            }
-        }
-    }
-
-    let all = states - 1;
-    let mut best = u64::MAX;
-    for last in 1..n {
-        if dp[all][last] != u64::MAX {
-            best = best.min(dp[all][last] + cost[last][0]);
-        }
-    }
-    (best != u64::MAX).then_some(best)
-}`,
+          "code": "/// Held-Karp TSP: cost[i][j] is the direct cost from i to j, diagonal zero.\n/// Returns None when n is too large or there is no tour.\npub fn tsp(cost: &[Vec<u64>]) -> Option<u64> {\n    let n = cost.len();\n    if n == 0 {\n        return None;\n    }\n    if n > 22 {\n        return None; // 2^22 * 22 states is the practical ceiling\n    }\n\n    let states = 1usize << n;\n    let mut dp = vec![vec![u64::MAX; n]; states];\n    dp[1][0] = 0; // start at city 0, only city 0 visited\n\n    for mask in 1..states {\n        for last in 0..n {\n            if dp[mask][last] == u64::MAX || mask & (1 << last) == 0 {\n                continue;\n            }\n            for next in 0..n {\n                if mask & (1 << next) != 0 {\n                    continue;\n                }\n                let next_mask = mask | (1 << next);\n                let candidate = dp[mask][last] + cost[last][next];\n                if candidate < dp[next_mask][next] {\n                    dp[next_mask][next] = candidate;\n                }\n            }\n        }\n    }\n\n    let all = states - 1;\n    let mut best = u64::MAX;\n    for last in 1..n {\n        if dp[all][last] != u64::MAX {\n            best = best.min(dp[all][last] + cost[last][0]);\n        }\n    }\n    (best != u64::MAX).then_some(best)\n}",
           "tip": "n > 22 should be an explicit typed error, not a silent None: the caller needs to know the instance is out of scope rather than infeasible."
         },
         {
@@ -4265,45 +2220,7 @@ pub fn tsp(cost: &[Vec<u64>]) -> Option<u64> {
             "Above 64 elements, a mask becomes an array of words. fixedbitset gives a compact fixed-size bit set with union, intersection, and iteration over set bits, and it is what petgraph uses internally. bitvec gives slices and views with explicit bit order (Msb0 or Lsb0), which matters the moment you serialise a bitset to a wire format and read it back on a different machine.",
             "Word-level parallelism is the payoff: a 10,000-element set intersection is 157 u64 ANDs, and popcount over the result is 157 instructions, not 10,000 branches. Bitset-based graph algorithms (reachability, transitive closure, set cover) exploit this directly. Roaring bitmaps go further with adaptive containers for sparse and dense regions, which is why search engines use them for document id sets."
           ],
-          "code": `use bitvec::prelude::*;
-
-/// Set algebra over dynamic bitsets: union, intersection, and cardinality.
-pub fn bitset_ops(a: &[u64], b: &[u64]) -> (usize, usize) {
-    let a = a.view_bits::<Lsb0>();
-    let b = b.view_bits::<Lsb0>();
-    let n = a.len().min(b.len());
-
-    let mut union = bitvec![0; n];
-    let mut intersection = bitvec![0; n];
-    for i in 0..n {
-        union.set(i, a[i] | b[i]);
-        intersection.set(i, a[i] & b[i]);
-    }
-    (union.count_ones(), intersection.count_ones())
-}
-
-/// Reachability by bitset: row u gains row v in one word-wise OR per edge.
-pub fn transitive_closure(adj: &[Vec<usize>], n: usize) -> Vec<Vec<u64>> {
-    let words = n.div_ceil(64);
-    let mut reach = vec![vec![0u64; words]; n];
-    for (u, neighbors) in adj.iter().enumerate() {
-        reach[u][u / 64] |= 1 << (u % 64);
-        for &v in neighbors {
-            reach[u][v / 64] |= 1 << (v % 64);
-        }
-    }
-    for k in 0..n {
-        for u in 0..n {
-            if reach[u][k / 64] & (1 << (k % 64)) != 0 {
-                for w in 0..words {
-                    let add = reach[k][w];
-                    reach[u][w] |= add;
-                }
-            }
-        }
-    }
-    reach
-}`,
+          "code": "use bitvec::prelude::*;\n\n/// Set algebra over dynamic bitsets: union, intersection, and cardinality.\npub fn bitset_ops(a: &[u64], b: &[u64]) -> (usize, usize) {\n    let a = a.view_bits::<Lsb0>();\n    let b = b.view_bits::<Lsb0>();\n    let n = a.len().min(b.len());\n\n    let mut union = bitvec![0; n];\n    let mut intersection = bitvec![0; n];\n    for i in 0..n {\n        union.set(i, a[i] | b[i]);\n        intersection.set(i, a[i] & b[i]);\n    }\n    (union.count_ones(), intersection.count_ones())\n}\n\n/// Reachability by bitset: row u gains row v in one word-wise OR per edge.\npub fn transitive_closure(adj: &[Vec<usize>], n: usize) -> Vec<Vec<u64>> {\n    let words = n.div_ceil(64);\n    let mut reach = vec![vec![0u64; words]; n];\n    for (u, neighbors) in adj.iter().enumerate() {\n        reach[u][u / 64] |= 1 << (u % 64);\n        for &v in neighbors {\n            reach[u][v / 64] |= 1 << (v % 64);\n        }\n    }\n    for k in 0..n {\n        for u in 0..n {\n            if reach[u][k / 64] & (1 << (k % 64)) != 0 {\n                for w in 0..words {\n                    let add = reach[k][w];\n                    reach[u][w] |= add;\n                }\n            }\n        }\n    }\n    reach\n}",
           "tip": "Pick Msb0 or Lsb0 once, write it in the type alias, and never mix: the same bytes decode to different sets under different bit orders."
         }
       ],
@@ -4311,62 +2228,7 @@ pub fn transitive_closure(adj: &[Vec<usize>], n: usize) -> Vec<Vec<u64>> {
         "prompt": "Implement `low_bit`, `clear_lowest`, and a safe `mask_of(n)` that does not overflow at n = 64. Then implement `submask_sums(n, weights)` and verify one entry by hand. Finally, explain why (1u32 << n) - 1 is a bug for n = 32.",
         "starter": "pub fn low_bit(x: u64) -> u64 { todo!() }\npub fn clear_lowest(x: u64) -> u64 { todo!() }\npub fn mask_of(n: u32) -> u64 { todo!() }\n\npub fn submask_sums(n: usize, weights: &[u64]) -> Vec<u64> {\n    todo!()\n}",
         "hint": "low_bit uses wrapping_neg; clear_lowest uses x - 1; mask_of must special-case n >= 64. For submasks, precompute the value of each mask from its lowest bit, then iterate sub = (sub - 1) & mask and break after processing zero.",
-        "solution": `pub fn low_bit(x: u64) -> u64 {
-    x & x.wrapping_neg()
-}
-
-pub fn clear_lowest(x: u64) -> u64 {
-    x & (x - 1)
-}
-
-pub fn mask_of(n: u32) -> u64 {
-    if n >= 64 {
-        u64::MAX
-    } else {
-        (1u64 << n) - 1
-    }
-}
-
-pub fn submask_sums(n: usize, weights: &[u64]) -> Vec<u64> {
-    assert!(n < 24);
-    assert_eq!(weights.len(), n);
-    let size = 1usize << n;
-
-    let mut bit_value = vec![0u64; size];
-    for mask in 1..size {
-        let low = mask & mask.wrapping_neg();
-        let bit = low.trailing_zeros() as usize;
-        bit_value[mask] = bit_value[mask ^ low] + weights[bit];
-    }
-
-    let mut sums = vec![0u64; size];
-    for mask in 0..size {
-        let mut total = 0u64;
-        let mut sub = mask;
-        loop {
-            total += bit_value[sub];
-            if sub == 0 {
-                break;
-            }
-            sub = (sub - 1) & mask;
-        }
-        sums[mask] = total;
-    }
-    sums
-}
-
-fn main() {
-    assert_eq!(low_bit(40), 8);
-    assert_eq!(clear_lowest(40), 32);
-    assert_eq!(mask_of(32), 0xFFFF_FFFF);
-    assert_eq!(mask_of(64), u64::MAX);
-
-    let sums = submask_sums(4, &[1, 10, 100, 1000]);
-    assert_eq!(sums[0b0011], 0 + 1 + 10 + 11);
-    assert_eq!(sums[0b0111], 444);
-    assert_eq!(sums[0b1111], 8 * 1111);
-    println!("ok");
-}`
+        "solution": "pub fn low_bit(x: u64) -> u64 {\n    x & x.wrapping_neg()\n}\n\npub fn clear_lowest(x: u64) -> u64 {\n    x & (x - 1)\n}\n\npub fn mask_of(n: u32) -> u64 {\n    if n >= 64 {\n        u64::MAX\n    } else {\n        (1u64 << n) - 1\n    }\n}\n\npub fn submask_sums(n: usize, weights: &[u64]) -> Vec<u64> {\n    assert!(n < 24);\n    assert_eq!(weights.len(), n);\n    let size = 1usize << n;\n\n    let mut bit_value = vec![0u64; size];\n    for mask in 1..size {\n        let low = mask & mask.wrapping_neg();\n        let bit = low.trailing_zeros() as usize;\n        bit_value[mask] = bit_value[mask ^ low] + weights[bit];\n    }\n\n    let mut sums = vec![0u64; size];\n    for mask in 0..size {\n        let mut total = 0u64;\n        let mut sub = mask;\n        loop {\n            total += bit_value[sub];\n            if sub == 0 {\n                break;\n            }\n            sub = (sub - 1) & mask;\n        }\n        sums[mask] = total;\n    }\n    sums\n}\n\nfn main() {\n    assert_eq!(low_bit(40), 8);\n    assert_eq!(clear_lowest(40), 32);\n    assert_eq!(mask_of(32), 0xFFFF_FFFF);\n    assert_eq!(mask_of(64), u64::MAX);\n\n    let sums = submask_sums(4, &[1, 10, 100, 1000]);\n    assert_eq!(sums[0b0011], 0 + 1 + 10 + 11);\n    assert_eq!(sums[0b0111], 444);\n    assert_eq!(sums[0b1111], 8 * 1111);\n    println!(\"ok\");\n}"
       },
       "questions": [
         {
@@ -4417,13 +2279,12 @@ fn main() {
       ],
       "crates": [
         "bitvec",
-        "fixedbitset",
-        "std"
+        "fixedbitset"
       ],
       "github": [
         {
           "name": "bitvecto-rs/bitvec",
-          "url": "https://github.com/bitvecto-rs/bitvec"
+          "url": "https://github.com/ferrilab/bitvec"
         },
         {
           "name": "petgraph/fixedbitset",
@@ -4439,7 +2300,7 @@ fn main() {
         },
         {
           "title": "bitvecto-rs/bitvec repository",
-          "url": "https://github.com/bitvecto-rs/bitvec",
+          "url": "https://github.com/ferrilab/bitvec",
           "kind": "repo"
         },
         {
@@ -4467,25 +2328,7 @@ fn main() {
             "Euclid's algorithm is subtraction replaced by remainder: gcd(a, b) = gcd(b, a mod b), which terminates in O(log min(a, b)) steps. The extended version also returns x and y with ax + by = g, and when gcd(a, m) = 1 that x is the modular inverse of a modulo m. num-integer provides gcd, lcm, and extended_gcd on its Integer trait, so production code rarely needs to write them.",
             "The trap is overflow in lcm and in the multiplication inside extended gcd. lcm(a, b) = a / gcd(a, b) * b is safe in that order because the division is exact; writing a * b / gcd overflows for values that fit comfortably in the type. If the result cannot fit, the correct answer is an error or a wider type, not a wrapped value that looks plausible."
           ],
-          "code": `use num_integer::Integer;
-
-/// Modular inverse via the extended Euclidean algorithm.
-/// ExtendedGcd is a struct with gcd, x and y fields; ax + my = gcd.
-pub fn inverse_mod(a: i64, m: i64) -> Option<i64> {
-    let eg = a.extended_gcd(&m);
-    if eg.gcd != 1 {
-        return None; // no inverse when gcd(a, m) != 1
-    }
-    Some(eg.x.rem_euclid(m))
-}
-
-fn main() {
-    assert_eq!(12i64.gcd(&18), 6);
-    assert_eq!(12i64.lcm(&18), 36);
-    // 3 * 4 = 12 = 1 mod 11
-    assert_eq!(inverse_mod(3, 11), Some(4));
-    assert_eq!(inverse_mod(6, 9), None);
-}`,
+          "code": "use num_integer::Integer;\n\n/// Modular inverse via the extended Euclidean algorithm.\n/// ExtendedGcd is a struct with gcd, x and y fields; ax + my = gcd.\npub fn inverse_mod(a: i64, m: i64) -> Option<i64> {\n    let eg = a.extended_gcd(&m);\n    if eg.gcd != 1 {\n        return None; // no inverse when gcd(a, m) != 1\n    }\n    Some(eg.x.rem_euclid(m))\n}\n\nfn main() {\n    assert_eq!(12i64.gcd(&18), 6);\n    assert_eq!(12i64.lcm(&18), 36);\n    // 3 * 4 = 12 = 1 mod 11\n    assert_eq!(inverse_mod(3, 11), Some(4));\n    assert_eq!(inverse_mod(6, 9), None);\n}",
           "tip": "rem_euclid is the correct normalisation for a possibly negative x; % keeps the sign of the dividend and produces negative inverses."
         },
         {
@@ -4494,29 +2337,7 @@ fn main() {
             "Computing a^e mod m by repeated multiplication overflows almost immediately, even for small inputs: two 32-bit numbers multiply to 64 bits, and in u64 arithmetic the intermediate wraps. Binary exponentiation reduces the exponent by half each step in O(log e) multiplications, but each multiplication still needs a wider intermediate or a mulmod routine.",
             "In Rust the simplest correct approach is to widen: cast to u128, multiply, reduce, cast back. That covers every u64 modulus without a custom mulmod. For larger moduli, or for constant-time code where branch behaviour matters, use a big-integer crate and a documented reduction strategy. Never rely on wrapping arithmetic for a modular result: it is silent and wrong."
           ],
-          "code": `/// (base ^ exp) mod modulus, using u128 for the intermediate product.
-pub fn mod_pow(mut base: u64, mut exp: u64, modulus: u64) -> u64 {
-    if modulus == 1 {
-        return 0;
-    }
-    let mut result = 1u64;
-    base %= modulus;
-    while exp > 0 {
-        if exp & 1 == 1 {
-            result = (result as u128 * base as u128 % modulus as u128) as u64;
-        }
-        base = (base as u128 * base as u128 % modulus as u128) as u64;
-        exp >>= 1;
-    }
-    result
-}
-
-fn main() {
-    assert_eq!(mod_pow(2, 10, 1_000), 24);
-    assert_eq!(mod_pow(3, 0, 7), 1);
-    assert_eq!(mod_pow(2, 63, u64::MAX), 0); // exact multiple
-    println!("{}", mod_pow(7, 1_000_000_007, 1_000_000_009));
-}`,
+          "code": "/// (base ^ exp) mod modulus, using u128 for the intermediate product.\npub fn mod_pow(mut base: u64, mut exp: u64, modulus: u64) -> u64 {\n    if modulus == 1 {\n        return 0;\n    }\n    let mut result = 1u64;\n    base %= modulus;\n    while exp > 0 {\n        if exp & 1 == 1 {\n            result = (result as u128 * base as u128 % modulus as u128) as u64;\n        }\n        base = (base as u128 * base as u128 % modulus as u128) as u64;\n        exp >>= 1;\n    }\n    result\n}\n\nfn main() {\n    assert_eq!(mod_pow(2, 10, 1_000), 24);\n    assert_eq!(mod_pow(3, 0, 7), 1);\n    assert_eq!(mod_pow(2, 63, u64::MAX), 0); // exact multiple\n    println!(\"{}\", mod_pow(7, 1_000_000_007, 1_000_000_009));\n}",
           "tip": "modulus == 1 must return 0 explicitly, otherwise the initial result of 1 is already outside the ring."
         },
         {
@@ -4525,50 +2346,7 @@ fn main() {
             "Trial division is O(sqrt n) and hopeless beyond a few trillion. Miller-Rabin tests a candidate against bases a: write n - 1 as d * 2^s, compute a^d mod n, and square up to s times looking for n - 1. A composite that passes a base is a pseudoprime to that base, and the chance of passing many random bases is bounded by 1/4 per base.",
             "For 64-bit inputs randomness is unnecessary: testing the first twelve primes - 2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37 - is deterministic for every n below roughly 3.18 * 10^23, which comfortably covers u64. That is the version to ship for hash table sizing and competitive primality checks; use a cryptographic library when you need provable primes or adversarial resistance."
           ],
-          "code": `pub fn is_prime(n: u64) -> bool {
-    if n < 2 {
-        return false;
-    }
-    for p in [2u64, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37] {
-        if n % p == 0 {
-            return n == p;
-        }
-    }
-
-    // n - 1 = d * 2^s with d odd.
-    let mut d = n - 1;
-    let mut s = 0u32;
-    while d % 2 == 0 {
-        d /= 2;
-        s += 1;
-    }
-
-    'witness: for a in [2u64, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37] {
-        let mut x = mod_pow(a, d, n);
-        if x == 1 || x == n - 1 {
-            continue;
-        }
-        for _ in 0..s - 1 {
-            x = mod_pow(x, 2, n);
-            if x == n - 1 {
-                continue 'witness;
-            }
-        }
-        return false;
-    }
-    true
-}
-
-fn main() {
-    assert!(is_prime(2));
-    assert!(!is_prime(1));
-    assert!(is_prime(1_000_000_007));
-    // 2^61 - 1 is a Mersenne prime.
-    assert!(is_prime((1u64 << 61) - 1));
-    // A strong pseudoprime to base 2, caught by the full witness set.
-    assert!(!is_prime(321_503_175_391));
-    println!("ok");
-}`,
+          "code": "pub fn is_prime(n: u64) -> bool {\n    if n < 2 {\n        return false;\n    }\n    for p in [2u64, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37] {\n        if n % p == 0 {\n            return n == p;\n        }\n    }\n\n    // n - 1 = d * 2^s with d odd.\n    let mut d = n - 1;\n    let mut s = 0u32;\n    while d % 2 == 0 {\n        d /= 2;\n        s += 1;\n    }\n\n    'witness: for a in [2u64, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37] {\n        let mut x = mod_pow(a, d, n);\n        if x == 1 || x == n - 1 {\n            continue;\n        }\n        for _ in 0..s - 1 {\n            x = mod_pow(x, 2, n);\n            if x == n - 1 {\n                continue 'witness;\n            }\n        }\n        return false;\n    }\n    true\n}\n\nfn main() {\n    assert!(is_prime(2));\n    assert!(!is_prime(1));\n    assert!(is_prime(1_000_000_007));\n    // 2^61 - 1 is a Mersenne prime.\n    assert!(is_prime((1u64 << 61) - 1));\n    // A strong pseudoprime to base 2, caught by the full witness set.\n    assert!(!is_prime(321_503_175_391));\n    println!(\"ok\");\n}",
           "tip": "The witness loop needs a labelled continue to skip to the next base once x reaches n - 1; a plain break leaves the inner loop and reports composite."
         },
         {
@@ -4589,87 +2367,7 @@ fn main() {
         "prompt": "Implement `mod_pow` with a u128 intermediate, `inverse_mod` via extended gcd, and `is_prime` with the twelve-witness Miller-Rabin. Verify that the inverse round-trips (a * inverse) % m == 1, and that composites with small factors are rejected quickly.",
         "starter": "pub fn mod_pow(base: u64, exp: u64, modulus: u64) -> u64 { todo!() }\n\npub fn inverse_mod(a: i64, m: i64) -> Option<i64> {\n    // extended gcd, then rem_euclid\n    todo!()\n}\n\npub fn is_prime(n: u64) -> bool { todo!() }",
         "hint": "Binary exponentiation squares the base each step and multiplies into the result when the low bit of the exponent is set. For the inverse, bail when gcd != 1 and normalise with rem_euclid.",
-        "solution": `pub fn mod_pow(mut base: u64, mut exp: u64, modulus: u64) -> u64 {
-    if modulus == 1 {
-        return 0;
-    }
-    let mut result = 1u64;
-    base %= modulus;
-    while exp > 0 {
-        if exp & 1 == 1 {
-            result = (result as u128 * base as u128 % modulus as u128) as u64;
-        }
-        base = (base as u128 * base as u128 % modulus as u128) as u64;
-        exp >>= 1;
-    }
-    result
-}
-
-pub fn inverse_mod(a: i64, m: i64) -> Option<i64> {
-    fn egcd(a: i64, b: i64) -> (i64, i64, i64) {
-        if b == 0 {
-            (a, 1, 0)
-        } else {
-            let (g, x, y) = egcd(b, a % b);
-            (g, y, x - (a / b) * y)
-        }
-    }
-    let (g, x, _) = egcd(a.rem_euclid(m), m);
-    if g != 1 {
-        None
-    } else {
-        Some(x.rem_euclid(m))
-    }
-}
-
-pub fn is_prime(n: u64) -> bool {
-    if n < 2 {
-        return false;
-    }
-    for p in [2u64, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37] {
-        if n % p == 0 {
-            return n == p;
-        }
-    }
-
-    let mut d = n - 1;
-    let mut s = 0u32;
-    while d % 2 == 0 {
-        d /= 2;
-        s += 1;
-    }
-
-    'witness: for a in [2u64, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37] {
-        let mut x = mod_pow(a, d, n);
-        if x == 1 || x == n - 1 {
-            continue;
-        }
-        for _ in 0..s - 1 {
-            x = mod_pow(x, 2, n);
-            if x == n - 1 {
-                continue 'witness;
-            }
-        }
-        return false;
-    }
-    true
-}
-
-fn main() {
-    assert_eq!(mod_pow(2, 10, 1_000), 24);
-    assert_eq!(inverse_mod(3, 11), Some(4));
-    assert_eq!(inverse_mod(6, 9), None);
-    for (a, m) in [(3i64, 11i64), (17, 3120), (7, 1_000_000_007)] {
-        let inv = inverse_mod(a, m).unwrap();
-        assert_eq!((a.rem_euclid(m) * inv) % m, 1);
-    }
-
-    assert!(is_prime(2));
-    assert!(!is_prime(1));
-    assert!(is_prime(1_000_000_007));
-    assert!(!is_prime(321_503_175_391));
-    println!("ok");
-}`
+        "solution": "pub fn mod_pow(mut base: u64, mut exp: u64, modulus: u64) -> u64 {\n    if modulus == 1 {\n        return 0;\n    }\n    let mut result = 1u64;\n    base %= modulus;\n    while exp > 0 {\n        if exp & 1 == 1 {\n            result = (result as u128 * base as u128 % modulus as u128) as u64;\n        }\n        base = (base as u128 * base as u128 % modulus as u128) as u64;\n        exp >>= 1;\n    }\n    result\n}\n\npub fn inverse_mod(a: i64, m: i64) -> Option<i64> {\n    fn egcd(a: i64, b: i64) -> (i64, i64, i64) {\n        if b == 0 {\n            (a, 1, 0)\n        } else {\n            let (g, x, y) = egcd(b, a % b);\n            (g, y, x - (a / b) * y)\n        }\n    }\n    let (g, x, _) = egcd(a.rem_euclid(m), m);\n    if g != 1 {\n        None\n    } else {\n        Some(x.rem_euclid(m))\n    }\n}\n\npub fn is_prime(n: u64) -> bool {\n    if n < 2 {\n        return false;\n    }\n    for p in [2u64, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37] {\n        if n % p == 0 {\n            return n == p;\n        }\n    }\n\n    let mut d = n - 1;\n    let mut s = 0u32;\n    while d % 2 == 0 {\n        d /= 2;\n        s += 1;\n    }\n\n    'witness: for a in [2u64, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37] {\n        let mut x = mod_pow(a, d, n);\n        if x == 1 || x == n - 1 {\n            continue;\n        }\n        for _ in 0..s - 1 {\n            x = mod_pow(x, 2, n);\n            if x == n - 1 {\n                continue 'witness;\n            }\n        }\n        return false;\n    }\n    true\n}\n\nfn main() {\n    assert_eq!(mod_pow(2, 10, 1_000), 24);\n    assert_eq!(inverse_mod(3, 11), Some(4));\n    assert_eq!(inverse_mod(6, 9), None);\n    for (a, m) in [(3i64, 11i64), (17, 3120), (7, 1_000_000_007)] {\n        let inv = inverse_mod(a, m).unwrap();\n        assert_eq!((a.rem_euclid(m) * inv) % m, 1);\n    }\n\n    assert!(is_prime(2));\n    assert!(!is_prime(1));\n    assert!(is_prime(1_000_000_007));\n    assert!(!is_prime(321_503_175_391));\n    println!(\"ok\");\n}"
       },
       "questions": [
         {
@@ -4719,8 +2417,7 @@ fn main() {
         "Hash table sizing that depends on primes uses a verified prime table, not a heuristic."
       ],
       "crates": [
-        "num-integer",
-        "std"
+        "num-integer"
       ],
       "github": [
         {
@@ -4769,27 +2466,7 @@ fn main() {
             "rand 0.10 exposes rand::rng() for a thread-local generator and rand::random_range(a..b) for a value in a range. The range and sampling methods live on RngExt, which is blanket-implemented for every Rng and must be imported. Thread-local generators are convenient and not reproducible across runs; when you need reproducibility - tests, simulations, benchmarks, replays - construct StdRng::seed_from_u64 and pass it explicitly.",
             "Randomness for security is a different problem. A seeded PRNG is predictable by design, so tokens, salts, and session ids must come from the operating system's CSPRNG, not from StdRng. rand exposes that distinction through its rngs module; using the wrong one is a vulnerability, not a style issue."
           ],
-          "code": `use rand::rngs::StdRng;
-use rand::{RngExt, SeedableRng};
-
-/// Deterministic shuffle for tests and replays: same seed, same permutation.
-pub fn shuffle_with_seed<T>(items: &mut [T], seed: u64) -> StdRng {
-    let mut rng = StdRng::seed_from_u64(seed);
-    for i in (1..items.len()).rev() {
-        let j = rng.random_range(0..=i);
-        items.swap(i, j);
-    }
-    rng
-}
-
-fn main() {
-    let mut a = vec![1, 2, 3, 4, 5];
-    let mut b = vec![1, 2, 3, 4, 5];
-    shuffle_with_seed(&mut a, 42);
-    shuffle_with_seed(&mut b, 42);
-    assert_eq!(a, b);
-    println!("{a:?}");
-}`,
+          "code": "use rand::rngs::StdRng;\nuse rand::{RngExt, SeedableRng};\n\n/// Deterministic shuffle for tests and replays: same seed, same permutation.\npub fn shuffle_with_seed<T>(items: &mut [T], seed: u64) -> StdRng {\n    let mut rng = StdRng::seed_from_u64(seed);\n    for i in (1..items.len()).rev() {\n        let j = rng.random_range(0..=i);\n        items.swap(i, j);\n    }\n    rng\n}\n\nfn main() {\n    let mut a = vec![1, 2, 3, 4, 5];\n    let mut b = vec![1, 2, 3, 4, 5];\n    shuffle_with_seed(&mut a, 42);\n    shuffle_with_seed(&mut b, 42);\n    assert_eq!(a, b);\n    println!(\"{a:?}\");\n}",
           "tip": "Iterate the Fisher-Yates loop downwards. Doing it upwards with j in 0..=i produces a biased shuffle that looks random in small tests."
         },
         {
@@ -4798,35 +2475,7 @@ fn main() {
             "When the input does not fit in memory, or you do not know its length, reservoir sampling keeps a uniform sample of k items in O(n) time and O(k) space. Keep the first k items, then for item i choose j uniformly in 0..=i and replace reservoir[j] when j < k. Every item ends up in the sample with probability k/n, which is exactly uniform.",
             "The algorithm generalises to weighted sampling, where items have different inclusion probabilities, and to distributed streams, where each shard samples and the coordinator merges with adjusted weights. The weighted case is not a small change - naive weighting biases the sample - so use a published algorithm and test the distribution rather than trusting intuition."
           ],
-          "code": `use rand::{Rng, RngExt};
-
-/// Uniform sample of k items from a stream of unknown length, in one pass.
-pub fn reservoir_sample<T: Clone>(stream: &[T], k: usize, rng: &mut impl Rng) -> Vec<T> {
-    if k == 0 {
-        return Vec::new();
-    }
-    let mut reservoir: Vec<T> = Vec::with_capacity(k);
-    for (i, item) in stream.iter().enumerate() {
-        if i < k {
-            reservoir.push(item.clone());
-        } else {
-            let j = rng.random_range(0..=i);
-            if j < k {
-                reservoir[j] = item.clone();
-            }
-        }
-    }
-    reservoir
-}
-
-fn main() {
-    let mut rng = rand::rng();
-    let data: Vec<u32> = (0..1_000).collect();
-    let sample = reservoir_sample(&data, 10, &mut rng);
-    assert_eq!(sample.len(), 10);
-    assert_eq!(reservoir_sample(&data, 0, &mut rng).len(), 0);
-    println!("{sample:?}");
-}`,
+          "code": "use rand::{Rng, RngExt};\n\n/// Uniform sample of k items from a stream of unknown length, in one pass.\npub fn reservoir_sample<T: Clone>(stream: &[T], k: usize, rng: &mut impl Rng) -> Vec<T> {\n    if k == 0 {\n        return Vec::new();\n    }\n    let mut reservoir: Vec<T> = Vec::with_capacity(k);\n    for (i, item) in stream.iter().enumerate() {\n        if i < k {\n            reservoir.push(item.clone());\n        } else {\n            let j = rng.random_range(0..=i);\n            if j < k {\n                reservoir[j] = item.clone();\n            }\n        }\n    }\n    reservoir\n}\n\nfn main() {\n    let mut rng = rand::rng();\n    let data: Vec<u32> = (0..1_000).collect();\n    let sample = reservoir_sample(&data, 10, &mut rng);\n    assert_eq!(sample.len(), 10);\n    assert_eq!(reservoir_sample(&data, 0, &mut rng).len(), 0);\n    println!(\"{sample:?}\");\n}",
           "tip": "Draw j from 0..=i inclusive. Using 0..i biases the sample toward early items because the last position can never be chosen for i."
         },
         {
@@ -4835,26 +2484,7 @@ fn main() {
             "Finding the k-th smallest element does not require a sort. Quickselect partitions around a pivot and recurses into one side, which is O(n) expected and O(n^2) worst case on adversarial pivots. Rust exposes this as select_nth_unstable, which reorders the slice so that the element at k is in its sorted position, everything before is smaller, and everything after is larger - all in expected linear time.",
             "For a guaranteed linear bound, median-of-medians chooses a pivot that is provably good, at the cost of a large constant and extra allocation; it is a theory result you should know and rarely ship. In practice, random pivots plus a fallback to sorting small partitions is what libraries do. Use select_nth_unstable for top-k, percentiles, and any place where a full sort is wasted work."
           ],
-          "code": `/// The k smallest values, unordered, in expected O(n) time.
-pub fn k_smallest(values: &mut [u64], k: usize) -> &[u64] {
-    if k == 0 {
-        return &[];
-    }
-    if k >= values.len() {
-        values.sort_unstable();
-        return values;
-    }
-    values.select_nth_unstable(k - 1);
-    &values[..k]
-}
-
-fn main() {
-    let mut values = vec![9, 1, 8, 2, 7, 3, 6, 4, 5];
-    let mut smallest = k_smallest(&mut values, 3).to_vec();
-    smallest.sort_unstable();
-    assert_eq!(smallest, vec![1, 2, 3]);
-    println!("{smallest:?}");
-}`,
+          "code": "/// The k smallest values, unordered, in expected O(n) time.\npub fn k_smallest(values: &mut [u64], k: usize) -> &[u64] {\n    if k == 0 {\n        return &[];\n    }\n    if k >= values.len() {\n        values.sort_unstable();\n        return values;\n    }\n    values.select_nth_unstable(k - 1);\n    &values[..k]\n}\n\nfn main() {\n    let mut values = vec![9, 1, 8, 2, 7, 3, 6, 4, 5];\n    let mut smallest = k_smallest(&mut values, 3).to_vec();\n    smallest.sort_unstable();\n    assert_eq!(smallest, vec![1, 2, 3]);\n    println!(\"{smallest:?}\");\n}",
           "tip": "select_nth_unstable returns the three partitions; discarding the tuple is fine, but the borrow ends with the statement, so bind the slice afterwards."
         },
         {
@@ -4875,57 +2505,7 @@ fn main() {
         "prompt": "Implement `reservoir_sample(stream, k, rng)` and `k_smallest(values, k)` using select_nth_unstable. Then write a test that samples 10,000 times from 100 items with k = 10 and asserts every item appears within a plausible frequency band.",
         "starter": "use rand::{Rng, RngExt};\n\npub fn reservoir_sample<T: Clone>(stream: &[T], k: usize, rng: &mut impl Rng) -> Vec<T> {\n    todo!()\n}\n\npub fn k_smallest(values: &mut [u64], k: usize) -> &[u64] {\n    todo!()\n}",
         "hint": "For the reservoir, keep the first k and replace at index j when random_range(0..=i) < k. For selection, call select_nth_unstable(k - 1) and slice the front; guard k == 0 and k >= len.",
-        "solution": `use rand::rngs::StdRng;
-use rand::{Rng, RngExt, SeedableRng};
-
-pub fn reservoir_sample<T: Clone>(stream: &[T], k: usize, rng: &mut impl Rng) -> Vec<T> {
-    if k == 0 {
-        return Vec::new();
-    }
-    let mut reservoir = Vec::with_capacity(k);
-    for (i, item) in stream.iter().enumerate() {
-        if i < k {
-            reservoir.push(item.clone());
-        } else {
-            let j = rng.random_range(0..=i);
-            if j < k {
-                reservoir[j] = item.clone();
-            }
-        }
-    }
-    reservoir
-}
-
-pub fn k_smallest(values: &mut [u64], k: usize) -> &[u64] {
-    if k == 0 {
-        return &[];
-    }
-    if k >= values.len() {
-        values.sort_unstable();
-        return values;
-    }
-    values.select_nth_unstable(k - 1);
-    &values[..k]
-}
-
-fn main() {
-    let mut rng = StdRng::seed_from_u64(7);
-    let data: Vec<u32> = (0..100).collect();
-    let mut counts = vec![0u32; 100];
-    for _ in 0..10_000 {
-        for item in reservoir_sample(&data, 10, &mut rng) {
-            counts[item as usize] += 1;
-        }
-    }
-    // Each item should appear about 1000 times; allow a wide band.
-    assert!(counts.iter().all(|&c| (800..1200).contains(&c)), "{counts:?}");
-
-    let mut values = vec![9, 1, 8, 2, 7, 3, 6, 4, 5];
-    let mut smallest = k_smallest(&mut values, 3).to_vec();
-    smallest.sort_unstable();
-    assert_eq!(smallest, vec![1, 2, 3]);
-    println!("ok");
-}`
+        "solution": "use rand::rngs::StdRng;\nuse rand::{Rng, RngExt, SeedableRng};\n\npub fn reservoir_sample<T: Clone>(stream: &[T], k: usize, rng: &mut impl Rng) -> Vec<T> {\n    if k == 0 {\n        return Vec::new();\n    }\n    let mut reservoir = Vec::with_capacity(k);\n    for (i, item) in stream.iter().enumerate() {\n        if i < k {\n            reservoir.push(item.clone());\n        } else {\n            let j = rng.random_range(0..=i);\n            if j < k {\n                reservoir[j] = item.clone();\n            }\n        }\n    }\n    reservoir\n}\n\npub fn k_smallest(values: &mut [u64], k: usize) -> &[u64] {\n    if k == 0 {\n        return &[];\n    }\n    if k >= values.len() {\n        values.sort_unstable();\n        return values;\n    }\n    values.select_nth_unstable(k - 1);\n    &values[..k]\n}\n\nfn main() {\n    let mut rng = StdRng::seed_from_u64(7);\n    let data: Vec<u32> = (0..100).collect();\n    let mut counts = vec![0u32; 100];\n    for _ in 0..10_000 {\n        for item in reservoir_sample(&data, 10, &mut rng) {\n            counts[item as usize] += 1;\n        }\n    }\n    // Each item should appear about 1000 times; allow a wide band.\n    assert!(counts.iter().all(|&c| (800..1200).contains(&c)), \"{counts:?}\");\n\n    let mut values = vec![9, 1, 8, 2, 7, 3, 6, 4, 5];\n    let mut smallest = k_smallest(&mut values, 3).to_vec();\n    smallest.sort_unstable();\n    assert_eq!(smallest, vec![1, 2, 3]);\n    println!(\"ok\");\n}"
       },
       "questions": [
         {
@@ -4975,8 +2555,7 @@ fn main() {
         "Las Vegas loops have a retry or time bound and return a typed error on exhaustion."
       ],
       "crates": [
-        "rand",
-        "std"
+        "rand"
       ],
       "github": [
         {
@@ -5034,44 +2613,7 @@ fn main() {
             "A prefix sum array answers range-sum queries in O(1) after O(n) preprocessing: sum(l..r) = prefix[r] - prefix[l]. The same construction answers range XOR, range product with modular arithmetic, and counting queries over a static array. It costs one extra array and one subtraction per query, which is hard to beat with any data structure.",
             "The difference array is the dual: to add a value to a range, record +delta at l and -delta at r+1, then take a prefix sum to materialise the array. Applying m range updates to n elements drops from O(nm) to O(n + m), which is the difference between a batch job that finishes and one that times out. A 2D difference array does the same for submatrix updates, using four corner marks and a double prefix sum."
           ],
-          "code": `/// Materialise m range additions on n slots in O(n + m).
-pub fn range_additions(n: usize, updates: &[(usize, usize, i64)]) -> Vec<i64> {
-    let mut diff = vec![0i64; n + 1];
-    for &(l, r, delta) in updates {
-        assert!(l <= r && r < n, "range out of bounds");
-        diff[l] += delta;
-        diff[r + 1] -= delta;
-    }
-
-    let mut values = vec![0i64; n];
-    let mut running = 0i64;
-    for i in 0..n {
-        running += diff[i];
-        values[i] = running;
-    }
-    values
-}
-
-/// Prefix sums: O(1) range queries after O(n) preprocessing.
-pub struct PrefixSum {
-    prefix: Vec<i64>,
-}
-
-impl PrefixSum {
-    pub fn new(values: &[i64]) -> Self {
-        let mut prefix = Vec::with_capacity(values.len() + 1);
-        prefix.push(0);
-        for &v in values {
-            prefix.push(prefix.last().copied().unwrap() + v);
-        }
-        Self { prefix }
-    }
-
-    /// Sum of values[l..r].
-    pub fn range(&self, l: usize, r: usize) -> i64 {
-        self.prefix[r] - self.prefix[l]
-    }
-}`,
+          "code": "/// Materialise m range additions on n slots in O(n + m).\npub fn range_additions(n: usize, updates: &[(usize, usize, i64)]) -> Vec<i64> {\n    let mut diff = vec![0i64; n + 1];\n    for &(l, r, delta) in updates {\n        assert!(l <= r && r < n, \"range out of bounds\");\n        diff[l] += delta;\n        diff[r + 1] -= delta;\n    }\n\n    let mut values = vec![0i64; n];\n    let mut running = 0i64;\n    for i in 0..n {\n        running += diff[i];\n        values[i] = running;\n    }\n    values\n}\n\n/// Prefix sums: O(1) range queries after O(n) preprocessing.\npub struct PrefixSum {\n    prefix: Vec<i64>,\n}\n\nimpl PrefixSum {\n    pub fn new(values: &[i64]) -> Self {\n        let mut prefix = Vec::with_capacity(values.len() + 1);\n        prefix.push(0);\n        for &v in values {\n            prefix.push(prefix.last().copied().unwrap() + v);\n        }\n        Self { prefix }\n    }\n\n    /// Sum of values[l..r].\n    pub fn range(&self, l: usize, r: usize) -> i64 {\n        self.prefix[r] - self.prefix[l]\n    }\n}",
           "tip": "Size the difference array n + 1 so the r + 1 mark at the last index is still in bounds; the extra cell is never read."
         },
         {
@@ -5080,36 +2622,7 @@ impl PrefixSum {
             "A sliding window maintains a contiguous range [left, right) plus enough aggregate state to answer the question - a sum, a frequency map, a count of distinct values. Expand right, and shrink left while the window violates the constraint. Each index enters and leaves once, so the whole scan is O(n) even though the nested while loop looks quadratic.",
             "The pattern applies when the predicate is monotone in the window size: if [l, r) is valid then every sub-window is valid. Longest substring without repeats, minimum window containing a set, and at-most-k-distinct all fit. When the predicate is not monotone - sums with negative numbers, for instance - the window is invalid and you need prefix sums plus a map instead. Recognising that difference is the skill."
           ],
-          "code": `/// Longest window with at most k distinct values. O(n) with a frequency map.
-pub fn longest_at_most_k_distinct(xs: &[u32], k: usize) -> usize {
-    use std::collections::HashMap;
-
-    let mut counts: HashMap<u32, usize> = HashMap::new();
-    let mut best = 0usize;
-    let mut left = 0usize;
-
-    for right in 0..xs.len() {
-        *counts.entry(xs[right]).or_insert(0) += 1;
-
-        while counts.len() > k {
-            let value = xs[left];
-            let entry = counts.get_mut(&value).expect("present while in window");
-            *entry -= 1;
-            if *entry == 0 {
-                counts.remove(&value);
-            }
-            left += 1;
-        }
-        best = best.max(right - left + 1);
-    }
-    best
-}
-
-fn main() {
-    assert_eq!(longest_at_most_k_distinct(&[1, 2, 1, 2, 3], 2), 4);
-    assert_eq!(longest_at_most_k_distinct(&[1, 2, 3, 4], 1), 1);
-    println!("ok");
-}`,
+          "code": "/// Longest window with at most k distinct values. O(n) with a frequency map.\npub fn longest_at_most_k_distinct(xs: &[u32], k: usize) -> usize {\n    use std::collections::HashMap;\n\n    let mut counts: HashMap<u32, usize> = HashMap::new();\n    let mut best = 0usize;\n    let mut left = 0usize;\n\n    for right in 0..xs.len() {\n        *counts.entry(xs[right]).or_insert(0) += 1;\n\n        while counts.len() > k {\n            let value = xs[left];\n            let entry = counts.get_mut(&value).expect(\"present while in window\");\n            *entry -= 1;\n            if *entry == 0 {\n                counts.remove(&value);\n            }\n            left += 1;\n        }\n        best = best.max(right - left + 1);\n    }\n    best\n}\n\nfn main() {\n    assert_eq!(longest_at_most_k_distinct(&[1, 2, 1, 2, 3], 2), 4);\n    assert_eq!(longest_at_most_k_distinct(&[1, 2, 3, 4], 1), 1);\n    println!(\"ok\");\n}",
           "tip": "Remove keys when their count reaches zero, otherwise the map size, and the while condition, stop reflecting the window."
         },
         {
@@ -5130,80 +2643,7 @@ fn main() {
         "prompt": "Implement `range_additions(n, updates)` with a difference array and `PrefixSum` with O(1) range queries. Then implement `longest_at_most_k_distinct` and verify all three on small hand-checked inputs.",
         "starter": "pub fn range_additions(n: usize, updates: &[(usize, usize, i64)]) -> Vec<i64> {\n    todo!()\n}\n\npub struct PrefixSum {\n    prefix: Vec<i64>,\n}\n\nimpl PrefixSum {\n    pub fn new(values: &[i64]) -> Self { todo!() }\n    pub fn range(&self, l: usize, r: usize) -> i64 { todo!() }\n}",
         "hint": "The difference array marks +delta at l and -delta at r+1, then a running sum materialises values. PrefixSum stores n+1 entries with prefix[0] = 0 so range(l, r) is prefix[r] - prefix[l].",
-        "solution": `pub fn range_additions(n: usize, updates: &[(usize, usize, i64)]) -> Vec<i64> {
-    let mut diff = vec![0i64; n + 1];
-    for &(l, r, delta) in updates {
-        assert!(l <= r && r < n);
-        diff[l] += delta;
-        diff[r + 1] -= delta;
-    }
-    let mut values = vec![0i64; n];
-    let mut running = 0i64;
-    for i in 0..n {
-        running += diff[i];
-        values[i] = running;
-    }
-    values
-}
-
-pub struct PrefixSum {
-    prefix: Vec<i64>,
-}
-
-impl PrefixSum {
-    pub fn new(values: &[i64]) -> Self {
-        let mut prefix = Vec::with_capacity(values.len() + 1);
-        prefix.push(0);
-        for &v in values {
-            let last = *prefix.last().unwrap();
-            prefix.push(last + v);
-        }
-        Self { prefix }
-    }
-
-    pub fn range(&self, l: usize, r: usize) -> i64 {
-        self.prefix[r] - self.prefix[l]
-    }
-}
-
-pub fn longest_at_most_k_distinct(xs: &[u32], k: usize) -> usize {
-    use std::collections::HashMap;
-
-    if k == 0 {
-        return 0;
-    }
-    let mut counts: HashMap<u32, usize> = HashMap::new();
-    let mut best = 0usize;
-    let mut left = 0usize;
-
-    for right in 0..xs.len() {
-        *counts.entry(xs[right]).or_insert(0) += 1;
-        while counts.len() > k {
-            let value = xs[left];
-            let entry = counts.get_mut(&value).unwrap();
-            *entry -= 1;
-            if *entry == 0 {
-                counts.remove(&value);
-            }
-            left += 1;
-        }
-        best = best.max(right - left + 1);
-    }
-    best
-}
-
-fn main() {
-    let updates = [(0, 2, 5), (1, 3, -2), (4, 4, 7)];
-    assert_eq!(range_additions(6, &updates), vec![5, 3, 3, -2, 7, 0]);
-
-    let prefix = PrefixSum::new(&[3, 1, 4, 1, 5, 9]);
-    assert_eq!(prefix.range(0, 6), 23);
-    assert_eq!(prefix.range(2, 4), 5);
-
-    assert_eq!(longest_at_most_k_distinct(&[1, 2, 1, 2, 3], 2), 4);
-    assert_eq!(longest_at_most_k_distinct(&[1, 2, 3], 0), 0);
-    println!("ok");
-}`
+        "solution": "pub fn range_additions(n: usize, updates: &[(usize, usize, i64)]) -> Vec<i64> {\n    let mut diff = vec![0i64; n + 1];\n    for &(l, r, delta) in updates {\n        assert!(l <= r && r < n);\n        diff[l] += delta;\n        diff[r + 1] -= delta;\n    }\n    let mut values = vec![0i64; n];\n    let mut running = 0i64;\n    for i in 0..n {\n        running += diff[i];\n        values[i] = running;\n    }\n    values\n}\n\npub struct PrefixSum {\n    prefix: Vec<i64>,\n}\n\nimpl PrefixSum {\n    pub fn new(values: &[i64]) -> Self {\n        let mut prefix = Vec::with_capacity(values.len() + 1);\n        prefix.push(0);\n        for &v in values {\n            let last = *prefix.last().unwrap();\n            prefix.push(last + v);\n        }\n        Self { prefix }\n    }\n\n    pub fn range(&self, l: usize, r: usize) -> i64 {\n        self.prefix[r] - self.prefix[l]\n    }\n}\n\npub fn longest_at_most_k_distinct(xs: &[u32], k: usize) -> usize {\n    use std::collections::HashMap;\n\n    if k == 0 {\n        return 0;\n    }\n    let mut counts: HashMap<u32, usize> = HashMap::new();\n    let mut best = 0usize;\n    let mut left = 0usize;\n\n    for right in 0..xs.len() {\n        *counts.entry(xs[right]).or_insert(0) += 1;\n        while counts.len() > k {\n            let value = xs[left];\n            let entry = counts.get_mut(&value).unwrap();\n            *entry -= 1;\n            if *entry == 0 {\n                counts.remove(&value);\n            }\n            left += 1;\n        }\n        best = best.max(right - left + 1);\n    }\n    best\n}\n\nfn main() {\n    let updates = [(0, 2, 5), (1, 3, -2), (4, 4, 7)];\n    assert_eq!(range_additions(6, &updates), vec![5, 3, 3, -2, 7, 0]);\n\n    let prefix = PrefixSum::new(&[3, 1, 4, 1, 5, 9]);\n    assert_eq!(prefix.range(0, 6), 23);\n    assert_eq!(prefix.range(2, 4), 5);\n\n    assert_eq!(longest_at_most_k_distinct(&[1, 2, 1, 2, 3], 2), 4);\n    assert_eq!(longest_at_most_k_distinct(&[1, 2, 3], 0), 0);\n    println!(\"ok\");\n}"
       },
       "questions": [
         {
@@ -5253,7 +2693,6 @@ fn main() {
         "Window algorithms document their monotonicity assumption and test a breaking input."
       ],
       "crates": [
-        "std",
         "indexmap",
         "smallvec"
       ],

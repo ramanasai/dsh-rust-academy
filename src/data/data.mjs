@@ -1,9 +1,8 @@
 /**
  * Data & persistence track.
  *
- * Postgres through SQLx, Redis caching, S3-compatible object storage, and the
- * integrity patterns that keep production data correct under concurrency.
- * Versions referenced: sqlx 0.8.6, redis (redis-rs) 1.8.x, aws-sdk-s3 1.157.
+ * Authored for the Rust Academy plugin. Every lesson is plain JSON-compatible
+ * data consumed by src/app.js through build.mjs.
  */
 export default {
   "key": "data",
@@ -137,7 +136,7 @@ export default {
       "github": [
         {
           "name": "sqlx",
-          "url": "https://github.com/launchbadge/sqlx"
+          "url": "https://github.com/transact-rs/sqlx"
         },
         {
           "name": "tokio",
@@ -254,7 +253,7 @@ export default {
         },
         {
           "title": "sqlx on GitHub: source, issues and release notes",
-          "url": "https://github.com/launchbadge/sqlx",
+          "url": "https://github.com/transact-rs/sqlx",
           "kind": "repo"
         },
         {
@@ -266,7 +265,7 @@ export default {
       "github": [
         {
           "name": "sqlx",
-          "url": "https://github.com/launchbadge/sqlx"
+          "url": "https://github.com/transact-rs/sqlx"
         }
       ],
       "quickbytes": [
@@ -379,7 +378,7 @@ export default {
         },
         {
           "title": "sqlx on GitHub: source, issues and release notes",
-          "url": "https://github.com/launchbadge/sqlx",
+          "url": "https://github.com/transact-rs/sqlx",
           "kind": "repo"
         },
         {
@@ -391,7 +390,7 @@ export default {
       "github": [
         {
           "name": "sqlx",
-          "url": "https://github.com/launchbadge/sqlx"
+          "url": "https://github.com/transact-rs/sqlx"
         },
         {
           "name": "uuid",
@@ -651,7 +650,7 @@ export default {
       "github": [
         {
           "name": "sqlx",
-          "url": "https://github.com/launchbadge/sqlx"
+          "url": "https://github.com/transact-rs/sqlx"
         }
       ],
       "quickbytes": [
@@ -910,7 +909,7 @@ export default {
       "github": [
         {
           "name": "sqlx",
-          "url": "https://github.com/launchbadge/sqlx"
+          "url": "https://github.com/transact-rs/sqlx"
         }
       ],
       "quickbytes": [
@@ -1013,7 +1012,7 @@ export default {
       "github": [
         {
           "name": "sqlx",
-          "url": "https://github.com/launchbadge/sqlx"
+          "url": "https://github.com/transact-rs/sqlx"
         },
         {
           "name": "postgres",
@@ -1310,7 +1309,7 @@ export default {
         },
         {
           "name": "sqlx",
-          "url": "https://github.com/launchbadge/sqlx"
+          "url": "https://github.com/transact-rs/sqlx"
         }
       ],
       "pitfall": "Raising lock_timeout to get a stuck migration through converts a 3-second error into a table outage: the ALTER queues behind a long query, and every request behind the ALTER queues too.",
@@ -1451,7 +1450,7 @@ export default {
         },
         {
           "name": "sqlx",
-          "url": "https://github.com/launchbadge/sqlx"
+          "url": "https://github.com/transact-rs/sqlx"
         }
       ],
       "pitfall": "A single Connection behind a Mutex serializes every query in the process: throughput collapses under concurrency that a pool of eight would have served, and the queue looks exactly like a slow database.",
@@ -1877,7 +1876,7 @@ export default {
         },
         {
           "name": "sqlx",
-          "url": "https://github.com/launchbadge/sqlx"
+          "url": "https://github.com/transact-rs/sqlx"
         }
       ],
       "pitfall": "Two operator classes look interchangeable until a query uses ?: jsonb_path_ops supports only @>, @? and @@, so key-existence checks silently fall back to a sequential scan after a migration to the smaller index.",
@@ -2008,7 +2007,7 @@ export default {
       "github": [
         {
           "name": "sqlx",
-          "url": "https://github.com/launchbadge/sqlx"
+          "url": "https://github.com/transact-rs/sqlx"
         },
         {
           "name": "postgres",
@@ -2039,7 +2038,7 @@ export default {
         },
         {
           "title": "sqlx on GitHub: pools, transactions and query macros",
-          "url": "https://github.com/launchbadge/sqlx",
+          "url": "https://github.com/transact-rs/sqlx",
           "kind": "repo"
         }
       ],
@@ -2434,7 +2433,7 @@ export default {
       "github": [
         {
           "name": "sqlx",
-          "url": "https://github.com/launchbadge/sqlx"
+          "url": "https://github.com/transact-rs/sqlx"
         },
         {
           "name": "refinery",

@@ -127,6 +127,13 @@ export default {
           "url": "https://github.com/rust-lang/rustlings",
           "kind": "repo"
         }
+      ],
+      "crates": [
+        "clap"
+      ],
+      "production": [
+        "Commit Cargo.lock for binaries so builds are reproducible.",
+        "Run cargo build --locked in CI to catch dependency drift."
       ]
     },
     {
@@ -221,6 +228,13 @@ export default {
           "url": "https://www.youtube.com/@letsgetrusty",
           "kind": "video"
         }
+      ],
+      "crates": [
+        "anyhow"
+      ],
+      "production": [
+        "Annotate public function signatures; let inference handle locals.",
+        "Run cargo clippy and fix numeric cast lints before merging."
       ]
     },
     {
@@ -315,6 +329,13 @@ export default {
           "url": "https://www.youtube.com/@letsgetrusty",
           "kind": "video"
         }
+      ],
+      "crates": [
+        "itertools"
+      ],
+      "production": [
+        "Prefer for loops and iterators over manual index arithmetic.",
+        "Deny clippy::needless_range_loop so index bugs are caught."
       ]
     },
     {
@@ -409,6 +430,13 @@ export default {
           "url": "https://www.youtube.com/@letsgetrusty",
           "kind": "video"
         }
+      ],
+      "crates": [
+        "anyhow"
+      ],
+      "production": [
+        "Keep functions small and return Result instead of panicking.",
+        "Enable clippy::too_many_arguments and clippy::type_complexity."
       ]
     },
     {
@@ -503,6 +531,13 @@ export default {
           "url": "https://www.youtube.com/@letsgetrusty",
           "kind": "video"
         }
+      ],
+      "crates": [
+        "regex"
+      ],
+      "production": [
+        "Never slice user text by byte offsets; use char_indices or split.",
+        "Treat len() as bytes and chars().count() as characters in APIs."
       ]
     },
     {
@@ -602,6 +637,13 @@ export default {
           "url": "https://arxiv.org/abs/2309.04134",
           "kind": "paper"
         }
+      ],
+      "crates": [
+        "serde"
+      ],
+      "production": [
+        "Do not clone() to silence borrow errors; redesign ownership instead.",
+        "Take &str and &[T] in functions so ownership stays with the caller."
       ]
     },
     {
@@ -701,6 +743,13 @@ export default {
           "url": "https://arxiv.org/abs/2011.06171",
           "kind": "paper"
         }
+      ],
+      "crates": [
+        "serde"
+      ],
+      "production": [
+        "Keep mutable borrows short; a block often ends them earlier.",
+        "Return references tied to inputs instead of cloning data."
       ]
     },
     {
@@ -795,6 +844,13 @@ export default {
           "url": "https://www.youtube.com/@fasterthanlime",
           "kind": "video"
         }
+      ],
+      "crates": [
+        "memchr"
+      ],
+      "production": [
+        "Use &str and &[T] in public APIs to accept borrowed views.",
+        "Document byte-index assumptions for any String slicing."
       ]
     },
     {
@@ -888,6 +944,13 @@ export default {
           "url": "https://www.youtube.com/@letsgetrusty",
           "kind": "video"
         }
+      ],
+      "crates": [
+        "serde"
+      ],
+      "production": [
+        "Derive Debug/Clone/PartialEq only when actually needed.",
+        "Keep behaviour on the type that owns the data; avoid anemic structs."
       ]
     },
     {
@@ -981,6 +1044,13 @@ export default {
           "url": "https://www.youtube.com/@letsgetrusty",
           "kind": "video"
         }
+      ],
+      "crates": [
+        "serde"
+      ],
+      "production": [
+        "Model states as enums so impossible states cannot be constructed.",
+        "Prefer exhaustive matches over _ so new variants fail compilation."
       ]
     },
     {
@@ -1075,6 +1145,14 @@ export default {
           "url": "https://www.youtube.com/@fasterthanlime",
           "kind": "video"
         }
+      ],
+      "crates": [
+        "thiserror",
+        "anyhow"
+      ],
+      "production": [
+        "Use thiserror for library errors and anyhow at application boundaries.",
+        "Never unwrap in request paths; map errors to responses."
       ]
     },
     {
@@ -1168,6 +1246,13 @@ export default {
           "url": "https://www.youtube.com/@jonhoo",
           "kind": "video"
         }
+      ],
+      "crates": [
+        "thiserror"
+      ],
+      "production": [
+        "Prefer generic bounds over dyn unless dynamic dispatch is required.",
+        "Keep traits small and document their contract."
       ]
     },
     {
@@ -1262,6 +1347,13 @@ export default {
           "url": "https://www.youtube.com/@jonhoo",
           "kind": "video"
         }
+      ],
+      "crates": [
+        "itertools"
+      ],
+      "production": [
+        "Prefer iterator chains to manual loops and annotate collect().",
+        "Benchmark hot iterator chains before adding complexity."
       ]
     },
     {
@@ -1360,6 +1452,13 @@ export default {
           "url": "https://github.com/rust-lang/rust",
           "kind": "repo"
         }
+      ],
+      "crates": [
+        "cargo-nextest"
+      ],
+      "production": [
+        "Keep a workspace with shared lints and dependency versions.",
+        "Run cargo deny and cargo audit in CI for crate hygiene."
       ]
     },
     {
@@ -1454,6 +1553,13 @@ export default {
           "url": "https://github.com/rust-lang/hashbrown",
           "kind": "repo"
         }
+      ],
+      "crates": [
+        "indexmap"
+      ],
+      "production": [
+        "Choose HashMap for lookups and BTreeMap for ordered iteration.",
+        "Reserve capacity up front when the size is known."
       ]
     },
     {
@@ -1552,6 +1658,13 @@ export default {
           "url": "https://github.com/clap-rs/clap",
           "kind": "repo"
         }
+      ],
+      "crates": [
+        "clap"
+      ],
+      "production": [
+        "Return non-zero exit codes on failure and write errors to stderr.",
+        "Use clap for argument parsing instead of manual args()."
       ]
     },
     {
@@ -1647,6 +1760,13 @@ export default {
           "url": "https://github.com/rust-lang/rust",
           "kind": "repo"
         }
+      ],
+      "crates": [
+        "crossbeam"
+      ],
+      "production": [
+        "Prefer channels over shared state when possible.",
+        "Keep lock scopes short and never hold a Mutex across await."
       ]
     },
     {
@@ -1742,6 +1862,13 @@ export default {
           "url": "https://github.com/rust-lang/rust",
           "kind": "repo"
         }
+      ],
+      "crates": [
+        "tokio"
+      ],
+      "production": [
+        "Never block inside async; use spawn_blocking for CPU work.",
+        "Set timeouts on every network call and propagate cancellation."
       ]
     },
     {
@@ -1841,6 +1968,13 @@ export default {
           "url": "https://arxiv.org/abs/1903.00982",
           "kind": "paper"
         }
+      ],
+      "crates": [
+        "thiserror"
+      ],
+      "production": [
+        "Box recursively sized types; share only with Rc/Arc when real.",
+        "Avoid RefCell in async code; prefer message passing."
       ]
     },
     {
@@ -1939,6 +2073,13 @@ export default {
           "url": "https://github.com/dtolnay/anyhow",
           "kind": "repo"
         }
+      ],
+      "crates": [
+        "proptest"
+      ],
+      "production": [
+        "Test behaviour, not implementation, and run cargo test in CI.",
+        "Deny warnings with RUSTFLAGS=\"-D warnings\" on the CI matrix."
       ]
     }
   ]

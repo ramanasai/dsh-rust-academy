@@ -1,13 +1,8 @@
 /**
  * Networking & protocols track.
  *
- * API versions used across the lessons: hyper 1.12.x with hyper-util 0.1.21
- * (TokioIo, TokioExecutor, legacy client), http-body-util 0.1.x, h2 0.4.x,
- * rustls 0.23.x with tokio-rustls 0.26.x, quinn 0.11.x, hickory-resolver 0.26.x,
- * tokio-tungstenite 0.30.x with tungstenite 0.30.x, tower 0.5.x, tokio-util 0.7.x,
- * metrics 0.24.x, socket2 0.6.x.
- *
- * Data is JSON-compatible and consumed by the plugin build.
+ * Authored for the Rust Academy plugin. Every lesson is plain JSON-compatible
+ * data consumed by src/app.js through build.mjs.
  */
 export default {
   "key": "networking",
@@ -79,23 +74,7 @@ export default {
             "Textbooks put TLS between transport and application. In Rust it is a library inside your process: `rustls` runs in user space and the kernel only sees TCP. QUIC goes further and implements reliability, congestion control, and encryption over UDP, so an on-path device sees UDP/443 and an encrypted payload. Header protection hides even packet numbers, which is why middleboxes cannot help and load balancers must route on connection IDs.",
             "That is a trade, not an accident: encrypted transport removes ossification and removes your ability to inspect. Operationally a QUIC balancer hashes a connection ID rather than a five-tuple, a packet capture shows nothing without keys, and per-flow fairness is enforced by the endpoint rather than the network. Ask which layer owns the failure, then use a tool that can see that layer."
           ],
-          "code": [
-            "# 1. What the interface can carry",
-            "ip link show dev eth0 | head -2",
-            "",
-            "# 2. Does the path carry full-size segments? (1,472 + 8 ICMP + 20 IP = 1,500)",
-            "ping -M do -s 1472 -c 2 api.example.com",
-            "ping -M do -s 1200 -c 2 api.example.com     # control: same path, smaller payload",
-            "",
-            "# 3. What the kernel actually negotiated",
-            "ss -tin dst 10.0.0.5 | grep -E 'mss|rtt|cwnd'",
-            "",
-            "# 4. See the headers, and the retransmissions that follow a black hole",
-            "tcpdump -ni eth0 -c 20 -vv 'host 10.0.0.5 and tcp port 443'",
-            "",
-            "# 5. A request large enough to cross the MTU boundary",
-            "curl -sS -o /dev/null -w 'size=%{size_download} time=%{time_total}\\n' --data-binary @2mb.bin https://api.example.com/upload"
-          ].join("\n"),
+          "code": "# 1. What the interface can carry\nip link show dev eth0 | head -2\n\n# 2. Does the path carry full-size segments? (1,472 + 8 ICMP + 20 IP = 1,500)\nping -M do -s 1472 -c 2 api.example.com\nping -M do -s 1200 -c 2 api.example.com     # control: same path, smaller payload\n\n# 3. What the kernel actually negotiated\nss -tin dst 10.0.0.5 | grep -E 'mss|rtt|cwnd'\n\n# 4. See the headers, and the retransmissions that follow a black hole\ntcpdump -ni eth0 -c 20 -vv 'host 10.0.0.5 and tcp port 443'\n\n# 5. A request large enough to cross the MTU boundary\ncurl -sS -o /dev/null -w 'size=%{size_download} time=%{time_total}\\n' --data-binary @2mb.bin https://api.example.com/upload",
           "tip": "A capture that shows the same 1,460-byte segment leaving repeatedly with no ACK is an MTU black hole, not a slow server."
         }
       ],
@@ -108,7 +87,12 @@ export default {
       "questions": [
         {
           "q": "On a 1,500-byte Ethernet MTU carrying IPv4 and TCP with no options, what MSS does the receiver advertise?",
-          "options": ["1460 bytes", "1500 bytes", "1440 bytes", "1480 bytes"],
+          "options": [
+            "1460 bytes",
+            "1500 bytes",
+            "1440 bytes",
+            "1480 bytes"
+          ],
           "answer": 0,
           "explain": "1,500 minus 20 bytes of IPv4 header and 20 of TCP header. TLS overhead lives inside that 1,460-byte payload, so it does not change the MSS."
         },
@@ -147,17 +131,43 @@ export default {
         "Alert on retransmission rate and on failures that correlate with response size.",
         "Plot bytes per request alongside request count so size-dependent regressions are visible."
       ],
-      "crates": ["socket2", "tokio", "tracing"],
+      "crates": [
+        "socket2",
+        "tokio",
+        "tracing"
+      ],
       "github": [
-        { "name": "tokio", "url": "https://github.com/tokio-rs/tokio" },
-        { "name": "socket2", "url": "https://github.com/rust-lang/socket2" }
+        {
+          "name": "tokio",
+          "url": "https://github.com/tokio-rs/tokio"
+        },
+        {
+          "name": "socket2",
+          "url": "https://github.com/rust-lang/socket2"
+        }
       ],
       "pitfall": "Jumbo frames enabled on one link: everything works inside the rack and fails through the load balancer, because one hop still fragments at 1,500 and the ICMP that would tell you is filtered.",
       "resources": [
-        { "title": "tokio::net: TCP and UDP primitives", "url": "https://docs.rs/tokio/latest/tokio/net/", "kind": "docs" },
-        { "title": "socket2: socket options, keepalive and buffer sizes", "url": "https://docs.rs/socket2/latest/socket2/", "kind": "docs" },
-        { "title": "A performance perspective on TCP+TLS+HTTP/2 vs QUIC", "url": "https://arxiv.org/abs/1906.07415", "kind": "paper" },
-        { "title": "tokio repository", "url": "https://github.com/tokio-rs/tokio", "kind": "repo" }
+        {
+          "title": "tokio::net: TCP and UDP primitives",
+          "url": "https://docs.rs/tokio/latest/tokio/net/",
+          "kind": "docs"
+        },
+        {
+          "title": "socket2: socket options, keepalive and buffer sizes",
+          "url": "https://docs.rs/socket2/latest/socket2/",
+          "kind": "docs"
+        },
+        {
+          "title": "A performance perspective on TCP+TLS+HTTP/2 vs QUIC",
+          "url": "https://arxiv.org/abs/1906.07415",
+          "kind": "paper"
+        },
+        {
+          "title": "tokio repository",
+          "url": "https://github.com/tokio-rs/tokio",
+          "kind": "repo"
+        }
       ]
     },
     {
@@ -195,29 +205,7 @@ export default {
             "Nagle's algorithm holds a small segment while earlier data is unacknowledged, waiting to coalesce. Delayed ACK waits up to about 40 ms before acknowledging, hoping to piggyback on a response. Put them together with a handler that writes headers and body in two calls and you get a stall: the second write waits for an ACK, and the ACK waits for traffic the write is holding back.",
             "The fix is both halves at once: disable Nagle on request/response sockets with TCP_NODELAY, and write the response in a single buffer so there is nothing to coalesce. `write_vectored` helps when the pieces are already separate, but not every TLS backend implements it efficiently. Setting TCP_NODELAY and still doing two small writes moves the problem into the kernel instead of solving it."
           ],
-          "code": [
-            "use socket2::{SockRef, TcpKeepalive};",
-            "use std::time::Duration;",
-            "use tokio::net::TcpStream;",
-            "",
-            "pub async fn connect(addr: std::net::SocketAddr) -> std::io::Result<TcpStream> {",
-            "    // A SYN that never answers must not pin the task for the kernel default.",
-            "    let stream = tokio::time::timeout(Duration::from_millis(800), TcpStream::connect(addr))",
-            "        .await",
-            "        .map_err(|_| std::io::Error::new(std::io::ErrorKind::TimedOut, \"connect timed out\"))??;",
-            "",
-            "    stream.set_nodelay(true)?; // request/response traffic: coalescing only hurts",
-            "",
-            "    let sock = SockRef::from(&stream);",
-            "    sock.set_tcp_keepalive(",
-            "        &TcpKeepalive::new()",
-            "            .with_time(Duration::from_secs(60))",
-            "            .with_interval(Duration::from_secs(15)),",
-            "    )?;",
-            "",
-            "    Ok(stream)",
-            "}"
-          ].join("\n"),
+          "code": "use socket2::{SockRef, TcpKeepalive};\nuse std::time::Duration;\nuse tokio::net::TcpStream;\n\npub async fn connect(addr: std::net::SocketAddr) -> std::io::Result<TcpStream> {\n    // A SYN that never answers must not pin the task for the kernel default.\n    let stream = tokio::time::timeout(Duration::from_millis(800), TcpStream::connect(addr))\n        .await\n        .map_err(|_| std::io::Error::new(std::io::ErrorKind::TimedOut, \"connect timed out\"))??;\n\n    stream.set_nodelay(true)?; // request/response traffic: coalescing only hurts\n\n    let sock = SockRef::from(&stream);\n    sock.set_tcp_keepalive(\n        &TcpKeepalive::new()\n            .with_time(Duration::from_secs(60))\n            .with_interval(Duration::from_secs(15)),\n    )?;\n\n    Ok(stream)\n}",
           "tip": "Linux keeps TCP keepalive idle at 7,200 s by default, so a dead peer behind a NAT can look healthy for two hours unless you set it yourself."
         },
         {
@@ -238,7 +226,12 @@ export default {
       "questions": [
         {
           "q": "How many round trips does a TCP handshake add before the first application byte can be sent?",
-          "options": ["One", "Zero", "Two", "Three"],
+          "options": [
+            "One",
+            "Zero",
+            "Two",
+            "Three"
+          ],
           "answer": 0,
           "explain": "SYN, SYN-ACK, ACK is one full round trip. The client may send data with the final ACK, but it still waited one RTT."
         },
@@ -277,17 +270,43 @@ export default {
         "TCP keepalive is configured explicitly; the Linux default idle of 7,200 s hides dead peers for two hours.",
         "Alert on sockets in TIME_WAIT and on retransmit rate per host, not just on error rate."
       ],
-      "crates": ["tokio", "socket2", "tracing"],
+      "crates": [
+        "tokio",
+        "socket2",
+        "tracing"
+      ],
       "github": [
-        { "name": "tokio", "url": "https://github.com/tokio-rs/tokio" },
-        { "name": "socket2", "url": "https://github.com/rust-lang/socket2" }
+        {
+          "name": "tokio",
+          "url": "https://github.com/tokio-rs/tokio"
+        },
+        {
+          "name": "socket2",
+          "url": "https://github.com/rust-lang/socket2"
+        }
       ],
       "pitfall": "Setting a generous connect timeout but no read timeout: a peer that completes the handshake and then stops sending holds the task, the pool slot, and the caller's budget until something else times out.",
       "resources": [
-        { "title": "tokio TcpStream: connect, nodelay, keepalive", "url": "https://docs.rs/tokio/latest/tokio/net/struct.TcpStream.html", "kind": "docs" },
-        { "title": "Linux IP sysctl reference (keepalive, tcp_tw_reuse)", "url": "https://docs.kernel.org/networking/ip-sysctl.html", "kind": "docs" },
-        { "title": "socket2 repository", "url": "https://github.com/rust-lang/socket2", "kind": "repo" },
-        { "title": "Jon Gjengset: Rust systems streams on protocols and async internals", "url": "https://www.youtube.com/@jonhoo", "kind": "video" }
+        {
+          "title": "tokio TcpStream: connect, nodelay, keepalive",
+          "url": "https://docs.rs/tokio/latest/tokio/net/struct.TcpStream.html",
+          "kind": "docs"
+        },
+        {
+          "title": "Linux IP sysctl reference (keepalive, tcp_tw_reuse)",
+          "url": "https://docs.kernel.org/networking/ip-sysctl.html",
+          "kind": "docs"
+        },
+        {
+          "title": "socket2 repository",
+          "url": "https://github.com/rust-lang/socket2",
+          "kind": "repo"
+        },
+        {
+          "title": "Jon Gjengset: Rust systems streams on protocols and async internals",
+          "url": "https://www.youtube.com/@jonhoo",
+          "kind": "video"
+        }
       ]
     },
     {
@@ -326,34 +345,7 @@ export default {
             "Flow control: a slow receiver needs a credit scheme, or the socket buffer drops silently",
             "Path MTU discovery and ECN: both must be implemented, not inherited from the kernel"
           ],
-          "code": [
-            "use std::net::SocketAddr;",
-            "use tokio::net::UdpSocket;",
-            "",
-            "const MAX_DATAGRAM: usize = 1_200; // stays under the IPv6 minimum MTU",
-            "",
-            "pub async fn run(bind: SocketAddr, peer: SocketAddr) -> std::io::Result<()> {",
-            "    let socket = UdpSocket::bind(bind).await?;",
-            "    // connect() filters other peers and turns ICMP port-unreachable into an error.",
-            "    socket.connect(peer).await?;",
-            "",
-            "    let mut buf = vec![0u8; MAX_DATAGRAM + 1]; // one spare byte detects truncation",
-            "    loop {",
-            "        let n = socket.recv(&mut buf).await?;",
-            "        if n > MAX_DATAGRAM {",
-            "            tracing::warn!(%peer, len = n, \"oversized datagram dropped\");",
-            "            continue;",
-            "        }",
-            "        if let Err(err) = handle(&buf[..n]).await {",
-            "            tracing::warn!(%err, \"datagram rejected\");",
-            "        }",
-            "    }",
-            "}",
-            "",
-            "async fn handle(_payload: &[u8]) -> Result<(), std::io::Error> {",
-            "    Ok(())",
-            "}"
-          ].join("\n"),
+          "code": "use std::net::SocketAddr;\nuse tokio::net::UdpSocket;\n\nconst MAX_DATAGRAM: usize = 1_200; // stays under the IPv6 minimum MTU\n\npub async fn run(bind: SocketAddr, peer: SocketAddr) -> std::io::Result<()> {\n    let socket = UdpSocket::bind(bind).await?;\n    // connect() filters other peers and turns ICMP port-unreachable into an error.\n    socket.connect(peer).await?;\n\n    let mut buf = vec![0u8; MAX_DATAGRAM + 1]; // one spare byte detects truncation\n    loop {\n        let n = socket.recv(&mut buf).await?;\n        if n > MAX_DATAGRAM {\n            tracing::warn!(%peer, len = n, \"oversized datagram dropped\");\n            continue;\n        }\n        if let Err(err) = handle(&buf[..n]).await {\n            tracing::warn!(%err, \"datagram rejected\");\n        }\n    }\n}\n\nasync fn handle(_payload: &[u8]) -> Result<(), std::io::Error> {\n    Ok(())\n}",
           "tip": "A recv that returns exactly buffer.len() is not a success; on Linux it is how truncation looks."
         }
       ],
@@ -410,17 +402,43 @@ export default {
         "Call connect() on client sockets so ICMP errors surface as errors instead of timeouts.",
         "If you need reliability over UDP, use QUIC instead of rebuilding a transport from scratch."
       ],
-      "crates": ["tokio", "quinn", "tracing"],
+      "crates": [
+        "tokio",
+        "quinn",
+        "tracing"
+      ],
       "github": [
-        { "name": "tokio", "url": "https://github.com/tokio-rs/tokio" },
-        { "name": "quinn", "url": "https://github.com/quinn-rs/quinn" }
+        {
+          "name": "tokio",
+          "url": "https://github.com/tokio-rs/tokio"
+        },
+        {
+          "name": "quinn",
+          "url": "https://github.com/quinn-rs/quinn"
+        }
       ],
       "pitfall": "A generous receive buffer and a sender at line rate: the kernel drops datagrams when the socket buffer fills, the sender never learns, and the application sees unexplained message loss that looks like a network fault.",
       "resources": [
-        { "title": "tokio UdpSocket: recv_from, send_to, connect", "url": "https://docs.rs/tokio/latest/tokio/net/struct.UdpSocket.html", "kind": "docs" },
-        { "title": "quinn: QUIC transport built on UDP datagrams", "url": "https://docs.rs/quinn/latest/quinn/", "kind": "docs" },
-        { "title": "QUIC Steps: evaluating pacing strategies in QUIC implementations", "url": "https://arxiv.org/abs/2505.09222", "kind": "paper" },
-        { "title": "tokio repository", "url": "https://github.com/tokio-rs/tokio", "kind": "repo" }
+        {
+          "title": "tokio UdpSocket: recv_from, send_to, connect",
+          "url": "https://docs.rs/tokio/latest/tokio/net/struct.UdpSocket.html",
+          "kind": "docs"
+        },
+        {
+          "title": "quinn: QUIC transport built on UDP datagrams",
+          "url": "https://docs.rs/quinn/latest/quinn/",
+          "kind": "docs"
+        },
+        {
+          "title": "QUIC Steps: evaluating pacing strategies in QUIC implementations",
+          "url": "https://arxiv.org/abs/2505.09222",
+          "kind": "paper"
+        },
+        {
+          "title": "tokio repository",
+          "url": "https://github.com/tokio-rs/tokio",
+          "kind": "repo"
+        }
       ]
     },
     {
@@ -458,53 +476,7 @@ export default {
             "TCP_NODELAY on every accepted socket, or small responses pay Nagle",
             "SO_KEEPALIVE with 60 s idle and 15 s interval, so half-open peers are reaped"
           ],
-          "code": [
-            "use std::sync::Arc;",
-            "use tokio::net::TcpListener;",
-            "use tokio::sync::Semaphore;",
-            "use tokio::task::JoinSet;",
-            "",
-            "pub async fn serve(listener: TcpListener, max_conns: usize) -> std::io::Result<()> {",
-            "    let permits = Arc::new(Semaphore::new(max_conns));",
-            "    let mut tasks = JoinSet::new();",
-            "",
-            "    loop {",
-            "        // Acquire before accept: the backlog absorbs the burst, the heap does not.",
-            "        let permit = permits.clone().acquire_owned().await.expect(\"semaphore stays open\");",
-            "",
-            "        let (stream, peer) = match listener.accept().await {",
-            "            Ok(pair) => pair,",
-            "            Err(err) if is_fatal(&err) => return Err(err),",
-            "            Err(err) => {",
-            "                // EMFILE and friends: log, back off a little, keep serving.",
-            "                tracing::warn!(%err, \"accept failed\");",
-            "                tokio::time::sleep(std::time::Duration::from_millis(20)).await;",
-            "                continue;",
-            "            }",
-            "        };",
-            "",
-            "        tasks.spawn(async move {",
-            "            let _permit = permit; // released when the connection task ends",
-            "            if let Err(err) = handle(stream).await {",
-            "                tracing::warn!(%peer, %err, \"connection ended\");",
-            "            }",
-            "        });",
-            "",
-            "        while tasks.try_join_next().is_some() {}",
-            "    }",
-            "}",
-            "",
-            "fn is_fatal(err: &std::io::Error) -> bool {",
-            "    !matches!(",
-            "        err.kind(),",
-            "        std::io::ErrorKind::ConnectionAborted | std::io::ErrorKind::Interrupted",
-            "    )",
-            "}",
-            "",
-            "async fn handle(_stream: tokio::net::TcpStream) -> std::io::Result<()> {",
-            "    Ok(())",
-            "}"
-          ].join("\n"),
+          "code": "use std::sync::Arc;\nuse tokio::net::TcpListener;\nuse tokio::sync::Semaphore;\nuse tokio::task::JoinSet;\n\npub async fn serve(listener: TcpListener, max_conns: usize) -> std::io::Result<()> {\n    let permits = Arc::new(Semaphore::new(max_conns));\n    let mut tasks = JoinSet::new();\n\n    loop {\n        // Acquire before accept: the backlog absorbs the burst, the heap does not.\n        let permit = permits.clone().acquire_owned().await.expect(\"semaphore stays open\");\n\n        let (stream, peer) = match listener.accept().await {\n            Ok(pair) => pair,\n            Err(err) if is_fatal(&err) => return Err(err),\n            Err(err) => {\n                // EMFILE and friends: log, back off a little, keep serving.\n                tracing::warn!(%err, \"accept failed\");\n                tokio::time::sleep(std::time::Duration::from_millis(20)).await;\n                continue;\n            }\n        };\n\n        tasks.spawn(async move {\n            let _permit = permit; // released when the connection task ends\n            if let Err(err) = handle(stream).await {\n                tracing::warn!(%peer, %err, \"connection ended\");\n            }\n        });\n\n        while tasks.try_join_next().is_some() {}\n    }\n}\n\nfn is_fatal(err: &std::io::Error) -> bool {\n    !matches!(\n        err.kind(),\n        std::io::ErrorKind::ConnectionAborted | std::io::ErrorKind::Interrupted\n    )\n}\n\nasync fn handle(_stream: tokio::net::TcpStream) -> std::io::Result<()> {\n    Ok(())\n}",
           "tip": "Print the listen backlog with `ss -lnt` and compare Send-Q with your configured value; the kernel silently caps it at somaxconn."
         }
       ],
@@ -561,17 +533,43 @@ export default {
         "Every connection task is tracked, so panics are visible and shutdown can wait for them.",
         "Raising ulimit is paired with a descriptor-leak check on idle connections."
       ],
-      "crates": ["tokio", "tokio-util", "socket2"],
+      "crates": [
+        "tokio",
+        "tokio-util",
+        "socket2"
+      ],
       "github": [
-        { "name": "tokio", "url": "https://github.com/tokio-rs/tokio" },
-        { "name": "socket2", "url": "https://github.com/rust-lang/socket2" }
+        {
+          "name": "tokio",
+          "url": "https://github.com/tokio-rs/tokio"
+        },
+        {
+          "name": "socket2",
+          "url": "https://github.com/rust-lang/socket2"
+        }
       ],
       "pitfall": "Accepting without a concurrency bound: a slowloris client or a SYN burst grows tasks until descriptors run out, and the first symptom is EMFILE when an unrelated file is opened.",
       "resources": [
-        { "title": "tokio TcpListener", "url": "https://docs.rs/tokio/latest/tokio/net/struct.TcpListener.html", "kind": "docs" },
-        { "title": "tokio_util CancellationToken", "url": "https://docs.rs/tokio-util/latest/tokio_util/sync/struct.CancellationToken.html", "kind": "docs" },
-        { "title": "Tokio guide: graceful shutdown", "url": "https://tokio.rs/tokio/topics/shutdown", "kind": "docs" },
-        { "title": "tokio repository", "url": "https://github.com/tokio-rs/tokio", "kind": "repo" }
+        {
+          "title": "tokio TcpListener",
+          "url": "https://docs.rs/tokio/latest/tokio/net/struct.TcpListener.html",
+          "kind": "docs"
+        },
+        {
+          "title": "tokio_util CancellationToken",
+          "url": "https://docs.rs/tokio-util/latest/tokio_util/sync/struct.CancellationToken.html",
+          "kind": "docs"
+        },
+        {
+          "title": "Tokio guide: graceful shutdown",
+          "url": "https://tokio.rs/tokio/topics/shutdown",
+          "kind": "docs"
+        },
+        {
+          "title": "tokio repository",
+          "url": "https://github.com/tokio-rs/tokio",
+          "kind": "repo"
+        }
       ]
     },
     {
@@ -588,21 +586,7 @@ export default {
             "HTTP/1.1 is a text protocol whose messages are separated by CRLF and whose body length comes from either `Content-Length` or `Transfer-Encoding: chunked`. A connection carries one request at a time: pipelining exists in the specification but is effectively dead, because responses must return in order and a slow first response blocks everything behind it. That head-of-line limit is the problem HTTP/2 was built to remove.",
             "`Host` is mandatory in 1.1 and is what makes virtual hosting possible. A forward proxy receives the absolute form, `GET https://host/path HTTP/1.1`, while a reverse proxy receives origin-form and routes on `Host`. Getting that distinction wrong produces the classic bug where a proxy forwards the absolute URI upstream and the origin 404s on a path that begins with `https://`."
           ],
-          "code": [
-            "POST /v1/orders HTTP/1.1",
-            "Host: api.example.com",
-            "Content-Type: application/json",
-            "Transfer-Encoding: chunked",
-            "",
-            "20",
-            "{\"id\":\"7f3c\",\"total_cents\":1999}",
-            "0",
-            "",
-            "HTTP/1.1 201 Created",
-            "Location: /v1/orders/7f3c",
-            "Content-Length: 0",
-            "Connection: keep-alive"
-          ].join("\n"),
+          "code": "POST /v1/orders HTTP/1.1\nHost: api.example.com\nContent-Type: application/json\nTransfer-Encoding: chunked\n\n20\n{\"id\":\"7f3c\",\"total_cents\":1999}\n0\n\nHTTP/1.1 201 Created\nLocation: /v1/orders/7f3c\nContent-Length: 0\nConnection: keep-alive",
           "tip": "The hex before each chunk is a byte count, not a length in characters; UTF-8 payloads make that difference visible."
         },
         {
@@ -611,33 +595,7 @@ export default {
             "Methods carry meaning, not just verbs. GET, HEAD, PUT, DELETE, and OPTIONS are idempotent: repeating them leaves the same state, so a retry after a timeout is defensible. POST is not idempotent unless you add an idempotency key, and retrying a POST that already committed is how customers get charged twice. Status codes matter too: 429 and 503 are retryable; 400 and 409 are not.",
             "Two responses never have a body, no matter what the headers claim: 204 and 304. HEAD returns the headers of the GET it mirrors and no body, which is why a proxy must not measure a HEAD by reading bytes that will never arrive. And keep-alive is the default in 1.1; the `Connection` header appears to say `close` or to list hop-by-hop tokens that must be stripped before forwarding."
           ],
-          "code": [
-            "use bytes::Bytes;",
-            "use http_body_util::Full;",
-            "use hyper::body::Incoming;",
-            "use hyper::{Method, Request, Response, StatusCode};",
-            "use std::convert::Infallible;",
-            "",
-            "async fn handle(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {",
-            "    let method = req.method();",
-            "    let is_head = method == Method::HEAD;",
-            "    let allowed = method == Method::GET || is_head || method == Method::PUT;",
-            "",
-            "    if !allowed {",
-            "        return Ok(Response::builder()",
-            "            .status(StatusCode::METHOD_NOT_ALLOWED)",
-            "            .header(\"allow\", \"GET, HEAD, PUT\")",
-            "            .body(Full::new(Bytes::new()))",
-            "            .expect(\"static response builds\"));",
-            "    }",
-            "",
-            "    // HEAD must send the headers a GET would send, and no body.",
-            "    let body = if is_head { Bytes::new() } else { Bytes::from_static(b\"{\\\"ok\\\":true}\") };",
-            "    let mut response = Response::new(Full::new(body));",
-            "    response.headers_mut().insert(\"content-type\", \"application/json\".parse().unwrap());",
-            "    Ok(response)",
-            "}"
-          ].join("\n"),
+          "code": "use bytes::Bytes;\nuse http_body_util::Full;\nuse hyper::body::Incoming;\nuse hyper::{Method, Request, Response, StatusCode};\nuse std::convert::Infallible;\n\nasync fn handle(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {\n    let method = req.method();\n    let is_head = method == Method::HEAD;\n    let allowed = method == Method::GET || is_head || method == Method::PUT;\n\n    if !allowed {\n        return Ok(Response::builder()\n            .status(StatusCode::METHOD_NOT_ALLOWED)\n            .header(\"allow\", \"GET, HEAD, PUT\")\n            .body(Full::new(Bytes::new()))\n            .expect(\"static response builds\"));\n    }\n\n    // HEAD must send the headers a GET would send, and no body.\n    let body = if is_head { Bytes::new() } else { Bytes::from_static(b\"{\\\"ok\\\":true}\") };\n    let mut response = Response::new(Full::new(body));\n    response.headers_mut().insert(\"content-type\", \"application/json\".parse().unwrap());\n    Ok(response)\n}",
           "tip": "A handler that returns a body for HEAD desynchronises HTTP/1.1 clients: they read the body as the next response's status line."
         },
         {
@@ -663,7 +621,12 @@ export default {
       "questions": [
         {
           "q": "Which response can never carry a body?",
-          "options": ["304 Not Modified", "200 OK", "400 Bad Request", "500 Internal Server Error"],
+          "options": [
+            "304 Not Modified",
+            "200 OK",
+            "400 Bad Request",
+            "500 Internal Server Error"
+          ],
           "answer": 0,
           "explain": "304 and 204 are defined with no body. A 304 tells the client to reuse its cached representation; there is nothing to send."
         },
@@ -680,7 +643,12 @@ export default {
         },
         {
           "q": "Which method is not safe to retry after a timeout unless the request carries an idempotency key?",
-          "options": ["POST", "GET", "PUT", "DELETE"],
+          "options": [
+            "POST",
+            "GET",
+            "PUT",
+            "DELETE"
+          ],
           "answer": 0,
           "explain": "GET, PUT and DELETE are idempotent by definition. A POST may already have created a resource, so a blind retry duplicates the effect."
         }
@@ -697,16 +665,39 @@ export default {
         "Header count and size limits are enforced at parse time, not after routing.",
         "Front-end and back-end use the same parser family, so one smuggling shape cannot be valid at one hop and invalid at the next."
       ],
-      "crates": ["hyper", "http-body-util", "bytes"],
+      "crates": [
+        "hyper",
+        "http-body-util",
+        "bytes"
+      ],
       "github": [
-        { "name": "hyper", "url": "https://github.com/hyperium/hyper" }
+        {
+          "name": "hyper",
+          "url": "https://github.com/hyperium/hyper"
+        }
       ],
       "pitfall": "A proxy that forwards both Content-Length and Transfer-Encoding: the next hop chooses a different framing than you did, the leftover bytes become a request the client never sent, and the connection is reused by the next victim.",
       "resources": [
-        { "title": "MDN: HTTP messages, request targets and framing", "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Messages", "kind": "docs" },
-        { "title": "hyper HTTP/1 server connections", "url": "https://docs.rs/hyper/latest/hyper/server/conn/http1/", "kind": "docs" },
-        { "title": "MDN: CONNECT method and tunnelling", "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Methods/CONNECT", "kind": "docs" },
-        { "title": "hyper repository", "url": "https://github.com/hyperium/hyper", "kind": "repo" }
+        {
+          "title": "MDN: HTTP messages, request targets and framing",
+          "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Messages",
+          "kind": "docs"
+        },
+        {
+          "title": "hyper HTTP/1 server connections",
+          "url": "https://docs.rs/hyper/latest/hyper/server/conn/http1/",
+          "kind": "docs"
+        },
+        {
+          "title": "MDN: CONNECT method and tunnelling",
+          "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Methods/CONNECT",
+          "kind": "docs"
+        },
+        {
+          "title": "hyper repository",
+          "url": "https://github.com/hyperium/hyper",
+          "kind": "repo"
+        }
       ]
     },
     {
@@ -731,41 +722,7 @@ export default {
             "Every stream and the connection itself have a receive window. The default initial window is 65,535 bytes, so a sender that respects it stops after 64 KB until the receiver advertises more. A client that reads a large response slowly, or a server that never grows the window, turns a fast link into a 64 KB-at-a-time transfer. That is why clients raise the connection window and enable adaptive windows.",
             "The other settings matter operationally. `SETTINGS_MAX_CONCURRENT_STREAMS` bounds in-flight requests per connection, so a client that queues a thousand streams waits for the server's limit rather than for the network. `SETTINGS_MAX_HEADER_LIST_SIZE` bounds the HPACK decode, and a server that never sets it is one crafted header block away from a memory spike."
           ],
-          "code": [
-            "use bytes::Bytes;",
-            "use h2::server;",
-            "use tokio::net::TcpStream;",
-            "",
-            "pub async fn serve(stream: TcpStream) -> Result<(), Box<dyn std::error::Error>> {",
-            "    // Raise the windows; the 65,535-byte default caps every large response.",
-            "    let mut conn = server::Builder::new()",
-            "        .initial_window_size(1024 * 1024)",
-            "        .initial_connection_window_size(4 * 1024 * 1024)",
-            "        .max_concurrent_streams(256)",
-            "        .handshake(stream)",
-            "        .await?;",
-            "",
-            "    while let Some(accepted) = conn.accept().await {",
-            "        let (request, mut respond) = accepted?;",
-            "        let path = request.uri().path().to_owned();",
-            "",
-            "        tokio::spawn(async move {",
-            "            let response = http::Response::builder()",
-            "                .status(200)",
-            "                .header(\"content-type\", \"text/plain\")",
-            "                .body(())",
-            "                .expect(\"static response builds\");",
-            "",
-            "            let mut body = respond.send_response(response, false)?;",
-            "            body.send_data(Bytes::from(path), false)?;",
-            "            body.send_data(Bytes::new(), true)?; // END_STREAM",
-            "            Ok::<(), h2::Error>(())",
-            "        });",
-            "    }",
-            "",
-            "    Ok(())",
-            "}"
-          ].join("\n"),
+          "code": "use bytes::Bytes;\nuse h2::server;\nuse tokio::net::TcpStream;\n\npub async fn serve(stream: TcpStream) -> Result<(), Box<dyn std::error::Error>> {\n    // Raise the windows; the 65,535-byte default caps every large response.\n    let mut conn = server::Builder::new()\n        .initial_window_size(1024 * 1024)\n        .initial_connection_window_size(4 * 1024 * 1024)\n        .max_concurrent_streams(256)\n        .handshake(stream)\n        .await?;\n\n    while let Some(accepted) = conn.accept().await {\n        let (request, mut respond) = accepted?;\n        let path = request.uri().path().to_owned();\n\n        tokio::spawn(async move {\n            let response = http::Response::builder()\n                .status(200)\n                .header(\"content-type\", \"text/plain\")\n                .body(())\n                .expect(\"static response builds\");\n\n            let mut body = respond.send_response(response, false)?;\n            body.send_data(Bytes::from(path), false)?;\n            body.send_data(Bytes::new(), true)?; // END_STREAM\n            Ok::<(), h2::Error>(())\n        });\n    }\n\n    Ok(())\n}",
           "tip": "Raising the window raises memory per connection; 4 MiB across 20,000 connections is 80 GB of worst-case buffering, so size it against your concurrency."
         },
         {
@@ -829,17 +786,44 @@ export default {
         "MAX_HEADER_LIST_SIZE is bounded so a crafted header block cannot exhaust memory.",
         "Shutdown sends GOAWAY, drains, then closes; clients retry idempotent requests elsewhere."
       ],
-      "crates": ["h2", "hyper", "http", "bytes"],
+      "crates": [
+        "h2",
+        "hyper",
+        "http",
+        "bytes"
+      ],
       "github": [
-        { "name": "hyper", "url": "https://github.com/hyperium/hyper" },
-        { "name": "hyper-util", "url": "https://github.com/hyperium/hyper-util" }
+        {
+          "name": "hyper",
+          "url": "https://github.com/hyperium/hyper"
+        },
+        {
+          "name": "hyper-util",
+          "url": "https://github.com/hyperium/hyper-util"
+        }
       ],
       "pitfall": "Leaving the default 65,535-byte connection window: a 10 MB response runs at 64 KB per round trip, CPU looks idle, and throughput sits at a fraction of the link while everything appears healthy.",
       "resources": [
-        { "title": "h2 crate documentation", "url": "https://docs.rs/h2/latest/h2/", "kind": "docs" },
-        { "title": "h2 server builder: windows and stream limits", "url": "https://docs.rs/h2/latest/h2/server/struct.Builder.html", "kind": "docs" },
-        { "title": "Domain sharding for faster HTTP/2 in lossy cellular networks", "url": "https://arxiv.org/abs/1707.05836", "kind": "paper" },
-        { "title": "hyper repository", "url": "https://github.com/hyperium/hyper", "kind": "repo" }
+        {
+          "title": "h2 crate documentation",
+          "url": "https://docs.rs/h2/latest/h2/",
+          "kind": "docs"
+        },
+        {
+          "title": "h2 server builder: windows and stream limits",
+          "url": "https://docs.rs/h2/latest/h2/server/struct.Builder.html",
+          "kind": "docs"
+        },
+        {
+          "title": "Domain sharding for faster HTTP/2 in lossy cellular networks",
+          "url": "https://arxiv.org/abs/1707.05836",
+          "kind": "paper"
+        },
+        {
+          "title": "hyper repository",
+          "url": "https://github.com/hyperium/hyper",
+          "kind": "repo"
+        }
       ]
     },
     {
@@ -877,47 +861,7 @@ export default {
             "Stream and connection receive windows, so one slow reader cannot buffer a whole file",
             "ALPN h3 required, or the handshake is refused before HTTP exists"
           ],
-          "code": [
-            "use std::sync::Arc;",
-            "use std::time::Duration;",
-            "use quinn::crypto::rustls::QuicServerConfig;",
-            "use quinn::{Endpoint, IdleTimeout, ServerConfig, VarInt};",
-            "",
-            "pub fn endpoint(",
-            "    addr: std::net::SocketAddr,",
-            "    certs: Vec<rustls::pki_types::CertificateDer<'static>>,",
-            "    key: rustls::pki_types::PrivateKeyDer<'static>,",
-            ") -> Result<Endpoint, Box<dyn std::error::Error>> {",
-            "    let mut tls = rustls::ServerConfig::builder()",
-            "        .with_no_client_auth()",
-            "        .with_single_cert(certs, key)?;",
-            "    tls.alpn_protocols = vec![b\"h3\".to_vec()]; // no ALPN, no HTTP/3",
-            "",
-            "    let mut config = ServerConfig::with_crypto(Arc::new(QuicServerConfig::try_from(tls)?));",
-            "    let transport = Arc::get_mut(&mut config.transport).expect(\"freshly built config\");",
-            "    transport.max_idle_timeout(Some(IdleTimeout::try_from(Duration::from_secs(30))?));",
-            "    transport.keep_alive_interval(Some(Duration::from_secs(10)));",
-            "    transport.max_concurrent_bidi_streams(VarInt::from_u32(256));",
-            "",
-            "    Ok(Endpoint::server(config, addr)?)",
-            "}",
-            "",
-            "pub async fn accept_loop(endpoint: Endpoint) -> Result<(), Box<dyn std::error::Error>> {",
-            "    while let Some(incoming) = endpoint.accept().await {",
-            "        let conn = incoming.await?;",
-            "        tokio::spawn(async move {",
-            "            while let Ok((mut send, mut recv)) = conn.accept_bi().await {",
-            "                tokio::spawn(async move {",
-            "                    let body = recv.read_to_end(64 * 1024).await.unwrap_or_default();",
-            "                    let _ = send.write_all(&body).await;",
-            "                    let _ = send.finish();",
-            "                });",
-            "            }",
-            "        });",
-            "    }",
-            "    Ok(())",
-            "}"
-          ].join("\n"),
+          "code": "use std::sync::Arc;\nuse std::time::Duration;\nuse quinn::crypto::rustls::QuicServerConfig;\nuse quinn::{Endpoint, IdleTimeout, ServerConfig, VarInt};\n\npub fn endpoint(\n    addr: std::net::SocketAddr,\n    certs: Vec<rustls::pki_types::CertificateDer<'static>>,\n    key: rustls::pki_types::PrivateKeyDer<'static>,\n) -> Result<Endpoint, Box<dyn std::error::Error>> {\n    let mut tls = rustls::ServerConfig::builder()\n        .with_no_client_auth()\n        .with_single_cert(certs, key)?;\n    tls.alpn_protocols = vec![b\"h3\".to_vec()]; // no ALPN, no HTTP/3\n\n    let mut config = ServerConfig::with_crypto(Arc::new(QuicServerConfig::try_from(tls)?));\n    let transport = Arc::get_mut(&mut config.transport).expect(\"freshly built config\");\n    transport.max_idle_timeout(Some(IdleTimeout::try_from(Duration::from_secs(30))?));\n    transport.keep_alive_interval(Some(Duration::from_secs(10)));\n    transport.max_concurrent_bidi_streams(VarInt::from_u32(256));\n\n    Ok(Endpoint::server(config, addr)?)\n}\n\npub async fn accept_loop(endpoint: Endpoint) -> Result<(), Box<dyn std::error::Error>> {\n    while let Some(incoming) = endpoint.accept().await {\n        let conn = incoming.await?;\n        tokio::spawn(async move {\n            while let Ok((mut send, mut recv)) = conn.accept_bi().await {\n                tokio::spawn(async move {\n                    let body = recv.read_to_end(64 * 1024).await.unwrap_or_default();\n                    let _ = send.write_all(&body).await;\n                    let _ = send.finish();\n                });\n            }\n        });\n    }\n    Ok(())\n}",
           "tip": "The default stream limit is a small number chosen for browsers; a proxy that copies a 4 MiB body per stream needs its own budget."
         }
       ],
@@ -974,17 +918,43 @@ export default {
         "0-RTT is disabled or allowlisted to idempotent routes, with server-side replay defence.",
         "Packets per second, not just bytes, are measured on the UDP receive path."
       ],
-      "crates": ["quinn", "rustls", "tokio"],
+      "crates": [
+        "quinn",
+        "rustls",
+        "tokio"
+      ],
       "github": [
-        { "name": "quinn", "url": "https://github.com/quinn-rs/quinn" },
-        { "name": "rustls", "url": "https://github.com/rustls/rustls" }
+        {
+          "name": "quinn",
+          "url": "https://github.com/quinn-rs/quinn"
+        },
+        {
+          "name": "rustls",
+          "url": "https://github.com/rustls/rustls"
+        }
       ],
       "pitfall": "Default transport limits on a proxy: the concurrent-stream cap is sized for a browser, so a few hundred long-lived streams make new requests wait inside open_bi() with no error and no timeout.",
       "resources": [
-        { "title": "quinn Endpoint: accept, connect, migration", "url": "https://docs.rs/quinn/latest/quinn/struct.Endpoint.html", "kind": "docs" },
-        { "title": "quinn TransportConfig: streams, windows, idle timeout", "url": "https://docs.rs/quinn/latest/quinn/struct.TransportConfig.html", "kind": "docs" },
-        { "title": "Passive measurement of QUIC deployments and load balancer behaviour", "url": "https://arxiv.org/abs/2209.00965", "kind": "paper" },
-        { "title": "quinn repository", "url": "https://github.com/quinn-rs/quinn", "kind": "repo" }
+        {
+          "title": "quinn Endpoint: accept, connect, migration",
+          "url": "https://docs.rs/quinn/latest/quinn/struct.Endpoint.html",
+          "kind": "docs"
+        },
+        {
+          "title": "quinn TransportConfig: streams, windows, idle timeout",
+          "url": "https://docs.rs/quinn/latest/quinn/struct.TransportConfig.html",
+          "kind": "docs"
+        },
+        {
+          "title": "Passive measurement of QUIC deployments and load balancer behaviour",
+          "url": "https://arxiv.org/abs/2209.00965",
+          "kind": "paper"
+        },
+        {
+          "title": "quinn repository",
+          "url": "https://github.com/quinn-rs/quinn",
+          "kind": "repo"
+        }
       ]
     },
     {
@@ -1009,42 +979,7 @@ export default {
             "TLS carries the requested hostname in the ClientHello, before any certificate is sent, so one listener can serve many domains. Implement `ResolvesServerCert` and return the certified key for that name; return `None` and the handshake fails with an unrecognised-name alert. Never fall back to a default certificate silently, because that hands a customer another tenant's name and a certificate they did not ask for.",
             "ALPN is how the client and server agree on HTTP/2 versus HTTP/1.1 before the first request. A server that advertises only `http/1.1` will silently serve every browser at 1.1 speeds, with no error anywhere. Advertise `h2` then `http/1.1` in that preference order, read the negotiated value after the handshake, and route the connection to the matching parser."
           ],
-          "code": [
-            "use std::sync::Arc;",
-            "use rustls::pki_types::{CertificateDer, PrivateKeyDer};",
-            "use rustls::server::{ClientHello, ResolvesServerCert};",
-            "use rustls::sign::CertifiedKey;",
-            "",
-            "struct SniCerts {",
-            "    entries: Vec<(String, Arc<CertifiedKey>)>,",
-            "}",
-            "",
-            "impl ResolvesServerCert for SniCerts {",
-            "    fn resolve(&self, hello: ClientHello<'_>) -> Option<Arc<CertifiedKey>> {",
-            "        let name = hello.server_name()?;",
-            "        self.entries",
-            "            .iter()",
-            "            .find(|(host, _)| host == name)",
-            "            .map(|(_, key)| Arc::clone(key))",
-            "    }",
-            "}",
-            "",
-            "pub fn server_config(",
-            "    entries: Vec<(String, Vec<CertificateDer<'static>>, PrivateKeyDer<'static>)>,",
-            ") -> Result<Arc<rustls::ServerConfig>, Box<dyn std::error::Error>> {",
-            "    let mut certs = Vec::with_capacity(entries.len());",
-            "    for (host, chain, key) in entries {",
-            "        let signing = rustls::crypto::aws_lc_rs::sign::any_supported_type(&key)?;",
-            "        certs.push((host, Arc::new(CertifiedKey::new(chain, signing))));",
-            "    }",
-            "",
-            "    let mut config = rustls::ServerConfig::builder()",
-            "        .with_no_client_auth()",
-            "        .with_cert_resolver(Arc::new(SniCerts { entries: certs }));",
-            "    config.alpn_protocols = vec![b\"h2\".to_vec(), b\"http/1.1\".to_vec()];",
-            "    Ok(Arc::new(config))",
-            "}"
-          ].join("\n"),
+          "code": "use std::sync::Arc;\nuse rustls::pki_types::{CertificateDer, PrivateKeyDer};\nuse rustls::server::{ClientHello, ResolvesServerCert};\nuse rustls::sign::CertifiedKey;\n\nstruct SniCerts {\n    entries: Vec<(String, Arc<CertifiedKey>)>,\n}\n\nimpl ResolvesServerCert for SniCerts {\n    fn resolve(&self, hello: ClientHello<'_>) -> Option<Arc<CertifiedKey>> {\n        let name = hello.server_name()?;\n        self.entries\n            .iter()\n            .find(|(host, _)| host == name)\n            .map(|(_, key)| Arc::clone(key))\n    }\n}\n\npub fn server_config(\n    entries: Vec<(String, Vec<CertificateDer<'static>>, PrivateKeyDer<'static>)>,\n) -> Result<Arc<rustls::ServerConfig>, Box<dyn std::error::Error>> {\n    let mut certs = Vec::with_capacity(entries.len());\n    for (host, chain, key) in entries {\n        let signing = rustls::crypto::aws_lc_rs::sign::any_supported_type(&key)?;\n        certs.push((host, Arc::new(CertifiedKey::new(chain, signing))));\n    }\n\n    let mut config = rustls::ServerConfig::builder()\n        .with_no_client_auth()\n        .with_cert_resolver(Arc::new(SniCerts { entries: certs }));\n    config.alpn_protocols = vec![b\"h2\".to_vec(), b\"http/1.1\".to_vec()];\n    Ok(Arc::new(config))\n}",
           "tip": "Check the negotiated ALPN after the handshake; a client that offered nothing gets an empty value, and the safe default is HTTP/1.1."
         },
         {
@@ -1114,17 +1049,43 @@ export default {
         "ALPN is configured and asserted in an integration test that speaks h2.",
         "Session ticket keys rotate on a schedule, and the resumption hit rate is a metric."
       ],
-      "crates": ["rustls", "tokio-rustls", "tokio"],
+      "crates": [
+        "rustls",
+        "tokio-rustls",
+        "tokio"
+      ],
       "github": [
-        { "name": "rustls", "url": "https://github.com/rustls/rustls" },
-        { "name": "tokio", "url": "https://github.com/tokio-rs/tokio" }
+        {
+          "name": "rustls",
+          "url": "https://github.com/rustls/rustls"
+        },
+        {
+          "name": "tokio",
+          "url": "https://github.com/tokio-rs/tokio"
+        }
       ],
       "pitfall": "Forgetting ALPN entirely: browsers and gRPC clients quietly negotiate HTTP/1.1, HTTP/2 multiplexing never happens, and every latency regression is blamed on the application.",
       "resources": [
-        { "title": "rustls server certificate resolution (ResolvesServerCert)", "url": "https://docs.rs/rustls/latest/rustls/server/trait.ResolvesServerCert.html", "kind": "docs" },
-        { "title": "tokio-rustls: async TLS acceptor and connector", "url": "https://docs.rs/tokio-rustls/latest/tokio_rustls/", "kind": "docs" },
-        { "title": "MDN: transport layer security", "url": "https://developer.mozilla.org/en-US/docs/Web/Security/Transport_Layer_Security", "kind": "docs" },
-        { "title": "rustls repository", "url": "https://github.com/rustls/rustls", "kind": "repo" }
+        {
+          "title": "rustls server certificate resolution (ResolvesServerCert)",
+          "url": "https://docs.rs/rustls/latest/rustls/server/trait.ResolvesServerCert.html",
+          "kind": "docs"
+        },
+        {
+          "title": "tokio-rustls: async TLS acceptor and connector",
+          "url": "https://docs.rs/tokio-rustls/latest/tokio_rustls/",
+          "kind": "docs"
+        },
+        {
+          "title": "MDN: transport layer security",
+          "url": "https://developer.mozilla.org/en-US/docs/Web/Security/Defenses/Transport_Layer_Security",
+          "kind": "docs"
+        },
+        {
+          "title": "rustls repository",
+          "url": "https://github.com/rustls/rustls",
+          "kind": "repo"
+        }
       ]
     },
     {
@@ -1156,28 +1117,7 @@ export default {
             "A connection pool holds sockets open for minutes or hours. If the record changes, the pool keeps using the address it connected to, and a failover that flips the record appears to do nothing until the pool drains. That is not a DNS bug; it is the pool doing its job. Either keep the maximum connection age below the TTL, or make the pool aware that resolution changed.",
             "In-process caching is a second layer. hickory-resolver caches per resolver instance and exposes TTL bounds for positive and negative answers, so a resolver created per request caches nothing while one shared for a week serves answers inside the TTL contract. Share one resolver, size its cache, and record lookup latency as a metric on the request path, because DNS is a dependency like any other."
           ],
-          "code": [
-            "use std::time::Duration;",
-            "use hickory_resolver::Resolver;",
-            "",
-            "pub async fn resolve(host: &str) -> Result<Vec<std::net::IpAddr>, Box<dyn std::error::Error>> {",
-            "    // One shared resolver per process: a resolver per request caches nothing.",
-            "    let resolver = Resolver::builder_tokio()?.build()?;",
-            "",
-            "    // Bound the lookup: a black-holed nameserver must not eat the request budget.",
-            "    let lookup = tokio::time::timeout(",
-            "        Duration::from_millis(800),",
-            "        resolver.lookup_ip(host),",
-            "    )",
-            "    .await??;",
-            "",
-            "    let addrs: Vec<std::net::IpAddr> = lookup.iter().map(|ip| ip.to_owned()).collect();",
-            "    if addrs.is_empty() {",
-            "        return Err(format!(\"no addresses for {host}\").into());",
-            "    }",
-            "    Ok(addrs)",
-            "}"
-          ].join("\n"),
+          "code": "use std::time::Duration;\nuse hickory_resolver::Resolver;\n\npub async fn resolve(host: &str) -> Result<Vec<std::net::IpAddr>, Box<dyn std::error::Error>> {\n    // One shared resolver per process: a resolver per request caches nothing.\n    let resolver = Resolver::builder_tokio()?.build()?;\n\n    // Bound the lookup: a black-holed nameserver must not eat the request budget.\n    let lookup = tokio::time::timeout(\n        Duration::from_millis(800),\n        resolver.lookup_ip(host),\n    )\n    .await??;\n\n    let addrs: Vec<std::net::IpAddr> = lookup.iter().map(|ip| ip.to_owned()).collect();\n    if addrs.is_empty() {\n        return Err(format!(\"no addresses for {host}\").into());\n    }\n    Ok(addrs)\n}",
           "tip": "Try both families from one lookup and start the second connection after ~250 ms; sequential fallback turns a broken IPv6 route into a full-timeout stall."
         }
       ],
@@ -1234,16 +1174,39 @@ export default {
         "Both UDP/53 and TCP/53 are allowed through every firewall on the resolution path.",
         "Search domains and ndots are reviewed, because they silently multiply the queries per request."
       ],
-      "crates": ["hickory-resolver", "tokio", "tracing"],
+      "crates": [
+        "hickory-resolver",
+        "tokio",
+        "tracing"
+      ],
       "github": [
-        { "name": "hickory-dns", "url": "https://github.com/hickory-dns/hickory-dns" }
+        {
+          "name": "hickory-dns",
+          "url": "https://github.com/hickory-dns/hickory-dns"
+        }
       ],
       "pitfall": "A resolver constructed inside the request handler: every lookup bypasses the cache, adds a full recursive resolution, and multiplies DNS traffic by your request rate during exactly the incident when DNS is already struggling.",
       "resources": [
-        { "title": "hickory-resolver: caching resolver, TTL bounds, DoT and DoH", "url": "https://docs.rs/hickory-resolver/latest/hickory_resolver/", "kind": "docs" },
-        { "title": "tokio::time::timeout for bounding lookups", "url": "https://docs.rs/tokio/latest/tokio/time/fn.timeout.html", "kind": "docs" },
-        { "title": "MDN: DNS concepts and record types", "url": "https://developer.mozilla.org/en-US/docs/Glossary/DNS", "kind": "docs" },
-        { "title": "hickory-dns repository", "url": "https://github.com/hickory-dns/hickory-dns", "kind": "repo" }
+        {
+          "title": "hickory-resolver: caching resolver, TTL bounds, DoT and DoH",
+          "url": "https://docs.rs/hickory-resolver/latest/hickory_resolver/",
+          "kind": "docs"
+        },
+        {
+          "title": "tokio::time::timeout for bounding lookups",
+          "url": "https://docs.rs/tokio/latest/tokio/time/fn.timeout.html",
+          "kind": "docs"
+        },
+        {
+          "title": "MDN: DNS concepts and record types",
+          "url": "https://developer.mozilla.org/en-US/docs/Glossary/DNS",
+          "kind": "docs"
+        },
+        {
+          "title": "hickory-dns repository",
+          "url": "https://github.com/hickory-dns/hickory-dns",
+          "kind": "repo"
+        }
       ]
     },
     {
@@ -1274,54 +1237,7 @@ export default {
             "Append to X-Forwarded-For or Forwarded; never replace the client's value silently",
             "Trust forwarding headers only when the peer address is a known proxy"
           ],
-          "code": [
-            "use bytes::Bytes;",
-            "use http_body_util::{combinators::BoxBody, BodyExt};",
-            "use hyper::body::Incoming;",
-            "use hyper::header::{HeaderValue, CONNECTION};",
-            "use hyper::{Request, Response};",
-            "use hyper_util::client::legacy::connect::HttpConnector;",
-            "use hyper_util::client::legacy::Client;",
-            "",
-            "pub type ProxyBody = BoxBody<Bytes, hyper::Error>;",
-            "",
-            "const HOP_BY_HOP: [&str; 8] = [",
-            "    \"connection\", \"keep-alive\", \"proxy-authenticate\", \"proxy-authorization\",",
-            "    \"te\", \"trailer\", \"transfer-encoding\", \"upgrade\",",
-            "];",
-            "",
-            "pub async fn forward(",
-            "    client: &Client<HttpConnector, Incoming>,",
-            "    mut req: Request<Incoming>,",
-            ") -> Result<Response<ProxyBody>, Box<dyn std::error::Error>> {",
-            "    // A forward proxy is addressed in absolute form; anything else is not for us.",
-            "    if req.uri().authority().is_none() {",
-            "        return Err(\"origin-form request on a forward proxy\".into());",
-            "    }",
-            "",
-            "    // Headers named by Connection are hop-by-hop for this message too.",
-            "    let named: Vec<String> = req",
-            "        .headers()",
-            "        .get_all(CONNECTION)",
-            "        .iter()",
-            "        .filter_map(|value| value.to_str().ok())",
-            "        .flat_map(|value| value.split(',').map(|token| token.trim().to_ascii_lowercase()))",
-            "        .collect();",
-            "",
-            "    for name in HOP_BY_HOP {",
-            "        req.headers_mut().remove(name);",
-            "    }",
-            "    for name in named {",
-            "        req.headers_mut().remove(name.as_str());",
-            "    }",
-            "",
-            "    req.headers_mut()",
-            "        .insert(\"via\", HeaderValue::from_static(\"1.1 rust-academy-proxy\"));",
-            "",
-            "    let response = client.request(req).await?;",
-            "    Ok(response.map(|body| body.boxed()))",
-            "}"
-          ].join("\n"),
+          "code": "use bytes::Bytes;\nuse http_body_util::{combinators::BoxBody, BodyExt};\nuse hyper::body::Incoming;\nuse hyper::header::{HeaderValue, CONNECTION};\nuse hyper::{Request, Response};\nuse hyper_util::client::legacy::connect::HttpConnector;\nuse hyper_util::client::legacy::Client;\n\npub type ProxyBody = BoxBody<Bytes, hyper::Error>;\n\nconst HOP_BY_HOP: [&str; 8] = [\n    \"connection\", \"keep-alive\", \"proxy-authenticate\", \"proxy-authorization\",\n    \"te\", \"trailer\", \"transfer-encoding\", \"upgrade\",\n];\n\npub async fn forward(\n    client: &Client<HttpConnector, Incoming>,\n    mut req: Request<Incoming>,\n) -> Result<Response<ProxyBody>, Box<dyn std::error::Error>> {\n    // A forward proxy is addressed in absolute form; anything else is not for us.\n    if req.uri().authority().is_none() {\n        return Err(\"origin-form request on a forward proxy\".into());\n    }\n\n    // Headers named by Connection are hop-by-hop for this message too.\n    let named: Vec<String> = req\n        .headers()\n        .get_all(CONNECTION)\n        .iter()\n        .filter_map(|value| value.to_str().ok())\n        .flat_map(|value| value.split(',').map(|token| token.trim().to_ascii_lowercase()))\n        .collect();\n\n    for name in HOP_BY_HOP {\n        req.headers_mut().remove(name);\n    }\n    for name in named {\n        req.headers_mut().remove(name.as_str());\n    }\n\n    req.headers_mut()\n        .insert(\"via\", HeaderValue::from_static(\"1.1 rust-academy-proxy\"));\n\n    let response = client.request(req).await?;\n    Ok(response.map(|body| body.boxed()))\n}",
           "tip": "The legacy hyper client keeps the absolute URI for routing and writes origin-form upstream, so stripping headers is the only rewrite a forward proxy needs."
         },
         {
@@ -1341,7 +1257,12 @@ export default {
       "questions": [
         {
           "q": "Which header must a proxy strip because it describes the connection rather than the message?",
-          "options": ["Connection", "Content-Type", "Accept-Encoding", "User-Agent"],
+          "options": [
+            "Connection",
+            "Content-Type",
+            "Accept-Encoding",
+            "User-Agent"
+          ],
           "answer": 0,
           "explain": "Connection, Keep-Alive, TE, Trailer, Transfer-Encoding, Upgrade and the proxy authentication headers are hop-by-hop: they describe the connection that ends at the proxy."
         },
@@ -1380,17 +1301,44 @@ export default {
         "Forwarded headers are honoured only from known proxy addresses.",
         "Every tunnel is tied to the client connection and closed when the client goes away."
       ],
-      "crates": ["hyper", "hyper-util", "http-body-util", "bytes"],
+      "crates": [
+        "hyper",
+        "hyper-util",
+        "http-body-util",
+        "bytes"
+      ],
       "github": [
-        { "name": "hyper", "url": "https://github.com/hyperium/hyper" },
-        { "name": "hyper-util", "url": "https://github.com/hyperium/hyper-util" }
+        {
+          "name": "hyper",
+          "url": "https://github.com/hyperium/hyper"
+        },
+        {
+          "name": "hyper-util",
+          "url": "https://github.com/hyperium/hyper-util"
+        }
       ],
       "pitfall": "Forwarding the Connection header and everything it names: the upstream inherits hop-by-hop semantics meant for your connection, and a keep-alive token can make it reuse a socket the next hop considers closed.",
       "resources": [
-        { "title": "hyper upgrades and CONNECT tunnelling", "url": "https://docs.rs/hyper/latest/hyper/upgrade/", "kind": "docs" },
-        { "title": "hyper-util legacy client: pooling and connectors", "url": "https://docs.rs/hyper-util/latest/hyper_util/", "kind": "docs" },
-        { "title": "HTTP/3 vs HTTP/2 with proxy integration", "url": "https://arxiv.org/abs/2409.16267", "kind": "paper" },
-        { "title": "hyper repository", "url": "https://github.com/hyperium/hyper", "kind": "repo" }
+        {
+          "title": "hyper upgrades and CONNECT tunnelling",
+          "url": "https://docs.rs/hyper/latest/hyper/upgrade/",
+          "kind": "docs"
+        },
+        {
+          "title": "hyper-util legacy client: pooling and connectors",
+          "url": "https://docs.rs/hyper-util/latest/hyper_util/",
+          "kind": "docs"
+        },
+        {
+          "title": "HTTP/3 vs HTTP/2 with proxy integration",
+          "url": "https://arxiv.org/abs/2409.16267",
+          "kind": "paper"
+        },
+        {
+          "title": "hyper repository",
+          "url": "https://github.com/hyperium/hyper",
+          "kind": "repo"
+        }
       ]
     },
     {
@@ -1421,48 +1369,7 @@ export default {
             "P2C picks two endpoints at random and sends the request to whichever reports less load. With random choices the maximum load is bounded far more tightly than pure random, and it needs only each endpoint's own counter, so there is no global lock and no cross-node gossip. That is why it is the default in several production proxies and in tower's balance module.",
             "The counter matters. In-flight requests, a peak-EWMA of latency, and queue depth all give different behaviour; in-flight is cheap and works well for uniform work, while an EWMA is better when request cost varies by orders of magnitude. Whichever you choose, the estimator must decay or reset, or a single long request pins an endpoint out of rotation for minutes."
           ],
-          "code": [
-            "use std::sync::atomic::{AtomicU64, Ordering};",
-            "use std::sync::Arc;",
-            "",
-            "pub struct Endpoint {",
-            "    pub addr: String,",
-            "    pub inflight: AtomicU64,",
-            "}",
-            "",
-            "impl Endpoint {",
-            "    fn load(&self) -> u64 {",
-            "        self.inflight.load(Ordering::Relaxed)",
-            "    }",
-            "}",
-            "",
-            "pub struct P2c {",
-            "    endpoints: Vec<Arc<Endpoint>>,",
-            "    seed: AtomicU64,",
-            "}",
-            "",
-            "impl P2c {",
-            "    /// Two random candidates, least loaded wins. O(1), no shared lock.",
-            "    pub fn pick(&self) -> Option<Arc<Endpoint>> {",
-            "        let n = self.endpoints.len();",
-            "        if n == 0 {",
-            "            return None;",
-            "        }",
-            "",
-            "        let mut x = self.seed.fetch_add(0x9E37_79B9_7F4A_7C15, Ordering::Relaxed);",
-            "        x ^= x >> 12;",
-            "        x ^= x << 25;",
-            "        x ^= x >> 27;",
-            "",
-            "        let a = &self.endpoints[(x as usize) % n];",
-            "        let b = &self.endpoints[((x >> 32) as usize) % n];",
-            "        let winner = if a.load() <= b.load() { a } else { b };",
-            "",
-            "        winner.inflight.fetch_add(1, Ordering::Relaxed);",
-            "        Some(Arc::clone(winner))",
-            "    }",
-            "}"
-          ].join("\n"),
+          "code": "use std::sync::atomic::{AtomicU64, Ordering};\nuse std::sync::Arc;\n\npub struct Endpoint {\n    pub addr: String,\n    pub inflight: AtomicU64,\n}\n\nimpl Endpoint {\n    fn load(&self) -> u64 {\n        self.inflight.load(Ordering::Relaxed)\n    }\n}\n\npub struct P2c {\n    endpoints: Vec<Arc<Endpoint>>,\n    seed: AtomicU64,\n}\n\nimpl P2c {\n    /// Two random candidates, least loaded wins. O(1), no shared lock.\n    pub fn pick(&self) -> Option<Arc<Endpoint>> {\n        let n = self.endpoints.len();\n        if n == 0 {\n            return None;\n        }\n\n        let mut x = self.seed.fetch_add(0x9E37_79B9_7F4A_7C15, Ordering::Relaxed);\n        x ^= x >> 12;\n        x ^= x << 25;\n        x ^= x >> 27;\n\n        let a = &self.endpoints[(x as usize) % n];\n        let b = &self.endpoints[((x >> 32) as usize) % n];\n        let winner = if a.load() <= b.load() { a } else { b };\n\n        winner.inflight.fetch_add(1, Ordering::Relaxed);\n        Some(Arc::clone(winner))\n    }\n}",
           "tip": "tower ships this already: `tower::balance::p2c::Balance` over a `Discover`, with `PendingRequests` or `PeakEwma` as the load estimator."
         },
         {
@@ -1532,16 +1439,39 @@ export default {
         "Recovered endpoints ramp traffic over 10-30 seconds instead of taking a full share.",
         "Zone-aware routing degrades to cross-zone rather than failing when a zone is lost."
       ],
-      "crates": ["tower", "tokio", "tracing"],
+      "crates": [
+        "tower",
+        "tokio",
+        "tracing"
+      ],
       "github": [
-        { "name": "tower", "url": "https://github.com/tower-rs/tower" }
+        {
+          "name": "tower",
+          "url": "https://github.com/tower-rs/tower"
+        }
       ],
       "pitfall": "Strict zone affinity with no fallback: one zone's balancer failure sends zero traffic to healthy endpoints in the other zone, turning a partial outage into a full one.",
       "resources": [
-        { "title": "tower::balance::p2c::Balance", "url": "https://docs.rs/tower/latest/tower/balance/p2c/struct.Balance.html", "kind": "docs" },
-        { "title": "tower::load: PendingRequests and PeakEwma estimators", "url": "https://docs.rs/tower/latest/tower/load/index.html", "kind": "docs" },
-        { "title": "RepNet: cutting tail latency with flow replication", "url": "https://arxiv.org/abs/1407.1239", "kind": "paper" },
-        { "title": "tower repository", "url": "https://github.com/tower-rs/tower", "kind": "repo" }
+        {
+          "title": "tower::balance::p2c::Balance",
+          "url": "https://docs.rs/tower/latest/tower/balance/p2c/struct.Balance.html",
+          "kind": "docs"
+        },
+        {
+          "title": "tower::load: PendingRequests and PeakEwma estimators",
+          "url": "https://docs.rs/tower/latest/tower/load/index.html",
+          "kind": "docs"
+        },
+        {
+          "title": "RepNet: cutting tail latency with flow replication",
+          "url": "https://arxiv.org/abs/1407.1239",
+          "kind": "paper"
+        },
+        {
+          "title": "tower repository",
+          "url": "https://github.com/tower-rs/tower",
+          "kind": "repo"
+        }
       ]
     },
     {
@@ -1579,55 +1509,7 @@ export default {
             "A retry budget caps retries as a fraction of successful traffic, for example 10%. When the error rate climbs, the budget runs out and retries stop exactly when they would do the most damage. Combined with a circuit breaker that fails fast while the upstream is down, this is the difference between a degraded dependency and a total outage caused by your own clients.",
             "Do the arithmetic before you enable retries. Three attempts means up to three times the load on a service that is already failing, and the extra work is spent on requests that have a high chance of failing again. Hedged requests, sending a second copy after p95 latency, improve the tail but amplify load even more; use them only for idempotent reads with a strict budget."
           ],
-          "code": [
-            "use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};",
-            "use tokio::time::sleep;",
-            "",
-            "#[derive(Debug)]",
-            "pub enum AttemptError {",
-            "    Transient,",
-            "    Permanent(String),",
-            "}",
-            "",
-            "pub async fn with_retry<F, Fut, T>(budget: Duration, mut call: F) -> Result<T, AttemptError>",
-            "where",
-            "    F: FnMut() -> Fut,",
-            "    Fut: std::future::Future<Output = Result<T, AttemptError>>,",
-            "{",
-            "    let deadline = Instant::now() + budget;",
-            "    let mut attempt: u32 = 0;",
-            "",
-            "    loop {",
-            "        attempt += 1;",
-            "        match call().await {",
-            "            Ok(value) => return Ok(value),",
-            "            Err(AttemptError::Permanent(reason)) => return Err(AttemptError::Permanent(reason)),",
-            "            Err(AttemptError::Transient) => {",
-            "                // Exponential base, capped, then full jitter: sleep in [0, base].",
-            "                let base_ms = 50u64.saturating_mul(1u64 << attempt.min(5));",
-            "                let wait = Duration::from_millis(jitter_ms(attempt, base_ms));",
-            "",
-            "                // Never sleep past the caller's deadline; fail while we still can.",
-            "                if Instant::now() + wait >= deadline {",
-            "                    return Err(AttemptError::Transient);",
-            "                }",
-            "                tracing::warn!(attempt, wait_ms = wait.as_millis(), \"retrying\");",
-            "                sleep(wait).await;",
-            "            }",
-            "        }",
-            "    }",
-            "}",
-            "",
-            "fn jitter_ms(attempt: u32, base_ms: u64) -> u64 {",
-            "    let nanos = SystemTime::now()",
-            "        .duration_since(UNIX_EPOCH)",
-            "        .map(|d| d.subsec_nanos() as u64)",
-            "        .unwrap_or(0);",
-            "    // Hash the clock with the attempt: cheap jitter, no RNG dependency.",
-            "    let mixed = nanos ^ (attempt as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);",
-            "    mixed % (base_ms + 1)",
-            "}"
-          ].join("\n"),
+          "code": "use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};\nuse tokio::time::sleep;\n\n#[derive(Debug)]\npub enum AttemptError {\n    Transient,\n    Permanent(String),\n}\n\npub async fn with_retry<F, Fut, T>(budget: Duration, mut call: F) -> Result<T, AttemptError>\nwhere\n    F: FnMut() -> Fut,\n    Fut: std::future::Future<Output = Result<T, AttemptError>>,\n{\n    let deadline = Instant::now() + budget;\n    let mut attempt: u32 = 0;\n\n    loop {\n        attempt += 1;\n        match call().await {\n            Ok(value) => return Ok(value),\n            Err(AttemptError::Permanent(reason)) => return Err(AttemptError::Permanent(reason)),\n            Err(AttemptError::Transient) => {\n                // Exponential base, capped, then full jitter: sleep in [0, base].\n                let base_ms = 50u64.saturating_mul(1u64 << attempt.min(5));\n                let wait = Duration::from_millis(jitter_ms(attempt, base_ms));\n\n                // Never sleep past the caller's deadline; fail while we still can.\n                if Instant::now() + wait >= deadline {\n                    return Err(AttemptError::Transient);\n                }\n                tracing::warn!(attempt, wait_ms = wait.as_millis(), \"retrying\");\n                sleep(wait).await;\n            }\n        }\n    }\n}\n\nfn jitter_ms(attempt: u32, base_ms: u64) -> u64 {\n    let nanos = SystemTime::now()\n        .duration_since(UNIX_EPOCH)\n        .map(|d| d.subsec_nanos() as u64)\n        .unwrap_or(0);\n    // Hash the clock with the attempt: cheap jitter, no RNG dependency.\n    let mixed = nanos ^ (attempt as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);\n    mixed % (base_ms + 1)\n}",
           "tip": "For a real deployment prefer `rand`'s uniform range over a clock hash; the point here is that jitter must exist and must not be correlated across clients."
         }
       ],
@@ -1684,16 +1566,39 @@ export default {
         "A retry budget and a circuit breaker exist, and both are visible on a dashboard.",
         "Attempt counts and time spent retrying are metrics, not just log lines."
       ],
-      "crates": ["tower", "tokio", "tracing"],
+      "crates": [
+        "tower",
+        "tokio",
+        "tracing"
+      ],
       "github": [
-        { "name": "tower", "url": "https://github.com/tower-rs/tower" }
+        {
+          "name": "tower",
+          "url": "https://github.com/tower-rs/tower"
+        }
       ],
       "pitfall": "Three retries on every 5xx with no budget: at a 30% error rate the retry traffic adds up to 90% more requests to a service that is already failing, and the storm keeps it down after the original trigger is gone.",
       "resources": [
-        { "title": "tower retry Policy trait", "url": "https://docs.rs/tower/latest/tower/retry/trait.Policy.html", "kind": "docs" },
-        { "title": "tower TimeoutLayer", "url": "https://docs.rs/tower/latest/tower/timeout/struct.TimeoutLayer.html", "kind": "docs" },
-        { "title": "tower repository", "url": "https://github.com/tower-rs/tower", "kind": "repo" },
-        { "title": "RepNet: tail latency under replication", "url": "https://arxiv.org/abs/1407.1239", "kind": "paper" }
+        {
+          "title": "tower retry Policy trait",
+          "url": "https://docs.rs/tower/latest/tower/retry/trait.Policy.html",
+          "kind": "docs"
+        },
+        {
+          "title": "tower TimeoutLayer",
+          "url": "https://docs.rs/tower/latest/tower/timeout/struct.TimeoutLayer.html",
+          "kind": "docs"
+        },
+        {
+          "title": "tower repository",
+          "url": "https://github.com/tower-rs/tower",
+          "kind": "repo"
+        },
+        {
+          "title": "RepNet: tail latency under replication",
+          "url": "https://arxiv.org/abs/1407.1239",
+          "kind": "paper"
+        }
       ]
     },
     {
@@ -1724,32 +1629,7 @@ export default {
             "Server keep-alive timeout: the largest of the three",
             "HTTP/2: PING while idle plus GOAWAY-aware retry of cancelled requests"
           ],
-          "code": [
-            "use std::time::Duration;",
-            "use hyper_util::client::legacy::connect::HttpConnector;",
-            "use hyper_util::client::legacy::Client;",
-            "use hyper_util::rt::{TokioExecutor, TokioTimer};",
-            "",
-            "pub fn client() -> Client<HttpConnector, hyper::body::Incoming> {",
-            "    let mut connector = HttpConnector::new();",
-            "    connector.set_nodelay(true);",
-            "    connector.set_connect_timeout(Some(Duration::from_millis(500)));",
-            "",
-            "    let mut builder = Client::builder(TokioExecutor::new());",
-            "    builder",
-            "        // Below the balancer's 60 s idle timeout: the client gives up first.",
-            "        .pool_idle_timeout(Duration::from_secs(30))",
-            "        .pool_max_idle_per_host(32)",
-            "        .pool_timer(TokioTimer::new())",
-            "        // Detect a dead peer before a user request does.",
-            "        .http2_keep_alive_interval(Some(Duration::from_secs(20)))",
-            "        .http2_keep_alive_timeout(Duration::from_secs(5))",
-            "        .http2_keep_alive_while_idle(true)",
-            "        .timer(TokioTimer::new());",
-            "",
-            "    builder.build(connector)",
-            "}"
-          ].join("\n"),
+          "code": "use std::time::Duration;\nuse hyper_util::client::legacy::connect::HttpConnector;\nuse hyper_util::client::legacy::Client;\nuse hyper_util::rt::{TokioExecutor, TokioTimer};\n\npub fn client() -> Client<HttpConnector, hyper::body::Incoming> {\n    let mut connector = HttpConnector::new();\n    connector.set_nodelay(true);\n    connector.set_connect_timeout(Some(Duration::from_millis(500)));\n\n    let mut builder = Client::builder(TokioExecutor::new());\n    builder\n        // Below the balancer's 60 s idle timeout: the client gives up first.\n        .pool_idle_timeout(Duration::from_secs(30))\n        .pool_max_idle_per_host(32)\n        .pool_timer(TokioTimer::new())\n        // Detect a dead peer before a user request does.\n        .http2_keep_alive_interval(Some(Duration::from_secs(20)))\n        .http2_keep_alive_timeout(Duration::from_secs(5))\n        .http2_keep_alive_while_idle(true)\n        .timer(TokioTimer::new());\n\n    builder.build(connector)\n}",
           "tip": "`pool_idle_timeout` does nothing without a timer; hyper's pool needs `pool_timer`, and forgetting it is a silent no-op."
         },
         {
@@ -1813,17 +1693,43 @@ export default {
         "Connection errors are charted separately from HTTP status codes.",
         "Deploys drain with GOAWAY and a grace period longer than the longest request."
       ],
-      "crates": ["hyper-util", "hyper", "tokio"],
+      "crates": [
+        "hyper-util",
+        "hyper",
+        "tokio"
+      ],
       "github": [
-        { "name": "hyper-util", "url": "https://github.com/hyperium/hyper-util" },
-        { "name": "hyper", "url": "https://github.com/hyperium/hyper" }
+        {
+          "name": "hyper-util",
+          "url": "https://github.com/hyperium/hyper-util"
+        },
+        {
+          "name": "hyper",
+          "url": "https://github.com/hyperium/hyper"
+        }
       ],
       "pitfall": "Client pool idle of 90 s against a balancer that closes at 60 s: every reuse after a quiet minute writes a request into a socket that received a FIN, and the caller sees a sporadic 502 that no handler code can explain.",
       "resources": [
-        { "title": "hyper-util legacy client builder: pool and keep-alive options", "url": "https://docs.rs/hyper-util/latest/hyper_util/client/legacy/struct.Builder.html", "kind": "docs" },
-        { "title": "hyper HTTP/2 server connections", "url": "https://docs.rs/hyper/latest/hyper/server/conn/http2/struct.Builder.html", "kind": "docs" },
-        { "title": "Sharding and HTTP/2 connection reuse revisited", "url": "https://arxiv.org/abs/2110.14239", "kind": "paper" },
-        { "title": "hyper repository", "url": "https://github.com/hyperium/hyper", "kind": "repo" }
+        {
+          "title": "hyper-util legacy client builder: pool and keep-alive options",
+          "url": "https://docs.rs/hyper-util/latest/hyper_util/client/legacy/struct.Builder.html",
+          "kind": "docs"
+        },
+        {
+          "title": "hyper HTTP/2 server connections",
+          "url": "https://docs.rs/hyper/latest/hyper/server/conn/http2/struct.Builder.html",
+          "kind": "docs"
+        },
+        {
+          "title": "Sharding and HTTP/2 connection reuse revisited",
+          "url": "https://arxiv.org/abs/2110.14239",
+          "kind": "paper"
+        },
+        {
+          "title": "hyper repository",
+          "url": "https://github.com/hyperium/hyper",
+          "kind": "repo"
+        }
       ]
     },
     {
@@ -1861,38 +1767,7 @@ export default {
             "A WebSocket has no request/response boundary, so nothing provides backpressure for you. If the application writes into an unbounded queue, a slow client turns into unbounded memory and eventually takes the process down. Bound the outbound queue per connection, and when it fills, decide explicitly: drop the connection, drop the message, or coalesce to the latest state.",
             "Proxies and load balancers idle out silent connections, often at 60 seconds, which is shorter than the gap between events in many applications. Send a ping every 20 or 30 seconds and treat a missing pong, or a failed write, as a dead peer. On shutdown, send a close frame with 1001 and give the client a moment to reconnect elsewhere instead of disappearing."
           ],
-          "code": [
-            "use futures_util::{SinkExt, StreamExt};",
-            "use tokio::net::TcpStream;",
-            "use tokio_tungstenite::tungstenite::protocol::{Message, WebSocketConfig};",
-            "",
-            "pub async fn serve(stream: TcpStream) -> Result<(), Box<dyn std::error::Error>> {",
-            "    let config = WebSocketConfig::default()",
-            "        .max_message_size(Some(1 << 20)) // 1 MiB per message, not 64 MiB",
-            "        .max_frame_size(Some(256 * 1024));",
-            "",
-            "    let ws = tokio_tungstenite::accept_async_with_config(stream, Some(config)).await?;",
-            "    let (mut sink, mut source) = ws.split();",
-            "",
-            "    let mut heartbeat = tokio::time::interval(std::time::Duration::from_secs(20));",
-            "    loop {",
-            "        tokio::select! {",
-            "            _ = heartbeat.tick() => {",
-            "                // Keeps proxies from idling the connection out.",
-            "                sink.send(Message::Ping(Default::default())).await?;",
-            "            }",
-            "            incoming = source.next() => match incoming {",
-            "                Some(Ok(Message::Text(text))) => sink.send(Message::Text(text)).await?,",
-            "                Some(Ok(Message::Close(_))) | None => break,",
-            "                Some(Ok(_)) => {} // pong, binary, or a ping the codec already answered",
-            "                Some(Err(err)) => return Err(err.into()),",
-            "            },",
-            "        }",
-            "    }",
-            "",
-            "    Ok(())",
-            "}"
-          ].join("\n"),
+          "code": "use futures_util::{SinkExt, StreamExt};\nuse tokio::net::TcpStream;\nuse tokio_tungstenite::tungstenite::protocol::{Message, WebSocketConfig};\n\npub async fn serve(stream: TcpStream) -> Result<(), Box<dyn std::error::Error>> {\n    let config = WebSocketConfig::default()\n        .max_message_size(Some(1 << 20)) // 1 MiB per message, not 64 MiB\n        .max_frame_size(Some(256 * 1024));\n\n    let ws = tokio_tungstenite::accept_async_with_config(stream, Some(config)).await?;\n    let (mut sink, mut source) = ws.split();\n\n    let mut heartbeat = tokio::time::interval(std::time::Duration::from_secs(20));\n    loop {\n        tokio::select! {\n            _ = heartbeat.tick() => {\n                // Keeps proxies from idling the connection out.\n                sink.send(Message::Ping(Default::default())).await?;\n            }\n            incoming = source.next() => match incoming {\n                Some(Ok(Message::Text(text))) => sink.send(Message::Text(text)).await?,\n                Some(Ok(Message::Close(_))) | None => break,\n                Some(Ok(_)) => {} // pong, binary, or a ping the codec already answered\n                Some(Err(err)) => return Err(err.into()),\n            },\n        }\n    }\n\n    Ok(())\n}",
           "tip": "The default tungstenite message limit is 64 MiB; lower it per endpoint, because a message limit is the only thing standing between a client and your allocator."
         }
       ],
@@ -1949,16 +1824,40 @@ export default {
         "Pings run on a timer and a missed pong terminates the connection.",
         "Shutdown sends close 1001 so clients reconnect instead of retrying blindly."
       ],
-      "crates": ["tokio-tungstenite", "tungstenite", "tokio", "futures-util"],
+      "crates": [
+        "tokio-tungstenite",
+        "tungstenite",
+        "tokio",
+        "futures-util"
+      ],
       "github": [
-        { "name": "tokio-tungstenite", "url": "https://github.com/snapview/tokio-tungstenite" }
+        {
+          "name": "tokio-tungstenite",
+          "url": "https://github.com/snapview/tokio-tungstenite"
+        }
       ],
       "pitfall": "Unbounded per-connection send queues: one client on a bad mobile link stops reading, the queue grows until the process is killed, and the same heap pressure degrades every other connection first.",
       "resources": [
-        { "title": "tokio-tungstenite: async handshake and streams", "url": "https://docs.rs/tokio-tungstenite/latest/tokio_tungstenite/", "kind": "docs" },
-        { "title": "MDN: the WebSockets API", "url": "https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API", "kind": "docs" },
-        { "title": "tungstenite WebSocketConfig limits", "url": "https://docs.rs/tungstenite/latest/tungstenite/protocol/struct.WebSocketConfig.html", "kind": "docs" },
-        { "title": "tokio-tungstenite repository", "url": "https://github.com/snapview/tokio-tungstenite", "kind": "repo" }
+        {
+          "title": "tokio-tungstenite: async handshake and streams",
+          "url": "https://docs.rs/tokio-tungstenite/latest/tokio_tungstenite/",
+          "kind": "docs"
+        },
+        {
+          "title": "MDN: the WebSockets API",
+          "url": "https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API",
+          "kind": "docs"
+        },
+        {
+          "title": "tungstenite WebSocketConfig limits",
+          "url": "https://docs.rs/tungstenite/latest/tungstenite/protocol/struct.WebSocketConfig.html",
+          "kind": "docs"
+        },
+        {
+          "title": "tokio-tungstenite repository",
+          "url": "https://github.com/snapview/tokio-tungstenite",
+          "kind": "repo"
+        }
       ]
     },
     {
@@ -1989,53 +1888,7 @@ export default {
             "Never retry 3, 5, 6, 7, or 9: they are deterministic answers",
             "Trailers arrive after the last DATA frame; a client that stops reading loses the status"
           ],
-          "code": [
-            "/// gRPC message framing: 1 byte compressed flag + 4 byte big-endian length.",
-            "pub fn encode(payload: &[u8]) -> Vec<u8> {",
-            "    let mut out = Vec::with_capacity(5 + payload.len());",
-            "    out.push(0); // 0 = not compressed",
-            "    out.extend_from_slice(&(payload.len() as u32).to_be_bytes());",
-            "    out.extend_from_slice(payload);",
-            "    out",
-            "}",
-            "",
-            "#[derive(Debug, PartialEq)]",
-            "pub enum FrameError {",
-            "    UnsupportedCompression(u8),",
-            "    TooLarge(usize),",
-            "}",
-            "",
-            "/// Returns the message plus the number of bytes consumed, or None if incomplete.",
-            "pub fn decode(buf: &[u8]) -> Result<Option<(&[u8], usize)>, FrameError> {",
-            "    if buf.len() < 5 {",
-            "        return Ok(None);",
-            "    }",
-            "    let flag = buf[0];",
-            "    if flag != 0 {",
-            "        return Err(FrameError::UnsupportedCompression(flag));",
-            "    }",
-            "    let len = u32::from_be_bytes([buf[1], buf[2], buf[3], buf[4]]) as usize;",
-            "    if len > 4 * 1024 * 1024 {",
-            "        return Err(FrameError::TooLarge(len)); // check before allocating",
-            "    }",
-            "    if buf.len() < 5 + len {",
-            "        return Ok(None);",
-            "    }",
-            "    Ok(Some((&buf[5..5 + len], 5 + len)))",
-            "}",
-            "",
-            "#[cfg(test)]",
-            "mod tests {",
-            "    use super::*;",
-            "",
-            "    #[test]",
-            "    fn round_trips_one_message() {",
-            "        let framed = encode(b\"hello\");",
-            "        assert_eq!(framed[..5], [0, 0, 0, 0, 5]);",
-            "        assert_eq!(decode(&framed).unwrap(), Some((&b\"hello\"[..], 10)));",
-            "    }",
-            "}"
-          ].join("\n"),
+          "code": "/// gRPC message framing: 1 byte compressed flag + 4 byte big-endian length.\npub fn encode(payload: &[u8]) -> Vec<u8> {\n    let mut out = Vec::with_capacity(5 + payload.len());\n    out.push(0); // 0 = not compressed\n    out.extend_from_slice(&(payload.len() as u32).to_be_bytes());\n    out.extend_from_slice(payload);\n    out\n}\n\n#[derive(Debug, PartialEq)]\npub enum FrameError {\n    UnsupportedCompression(u8),\n    TooLarge(usize),\n}\n\n/// Returns the message plus the number of bytes consumed, or None if incomplete.\npub fn decode(buf: &[u8]) -> Result<Option<(&[u8], usize)>, FrameError> {\n    if buf.len() < 5 {\n        return Ok(None);\n    }\n    let flag = buf[0];\n    if flag != 0 {\n        return Err(FrameError::UnsupportedCompression(flag));\n    }\n    let len = u32::from_be_bytes([buf[1], buf[2], buf[3], buf[4]]) as usize;\n    if len > 4 * 1024 * 1024 {\n        return Err(FrameError::TooLarge(len)); // check before allocating\n    }\n    if buf.len() < 5 + len {\n        return Ok(None);\n    }\n    Ok(Some((&buf[5..5 + len], 5 + len)))\n}\n\n#[cfg(test)]\nmod tests {\n    use super::*;\n\n    #[test]\n    fn round_trips_one_message() {\n        let framed = encode(b\"hello\");\n        assert_eq!(framed[..5], [0, 0, 0, 0, 5]);\n        assert_eq!(decode(&framed).unwrap(), Some((&b\"hello\"[..], 10)));\n    }\n}",
           "tip": "A length prefix is not a size limit: validate the announced length against a maximum before you reserve a buffer for it."
         },
         {
@@ -2099,15 +1952,35 @@ export default {
         "Deadlines are forwarded as remaining budget, and the proxy does not impose a shorter one.",
         "Compression is negotiated and never assumed from the flag alone."
       ],
-      "crates": ["h2", "tonic", "prost", "bytes"],
+      "crates": [
+        "h2",
+        "tonic",
+        "prost",
+        "bytes"
+      ],
       "github": [
-        { "name": "h2", "url": "https://github.com/hyperium/h2" }
+        {
+          "name": "h2",
+          "url": "https://github.com/hyperium/h2"
+        }
       ],
       "pitfall": "A proxy that terminates HTTP/2 and re-encodes as HTTP/1.1: every gRPC error becomes a 200 with an empty body, so clients retry successful calls and never see the real status.",
       "resources": [
-        { "title": "gRPC core concepts: streams, metadata, status codes", "url": "https://grpc.io/docs/what-is-grpc/core-concepts/", "kind": "docs" },
-        { "title": "h2: the HTTP/2 implementation underneath tonic", "url": "https://docs.rs/h2/latest/h2/", "kind": "docs" },
-        { "title": "hyper repository", "url": "https://github.com/hyperium/hyper", "kind": "repo" }
+        {
+          "title": "gRPC core concepts: streams, metadata, status codes",
+          "url": "https://grpc.io/docs/what-is-grpc/core-concepts/",
+          "kind": "docs"
+        },
+        {
+          "title": "h2: the HTTP/2 implementation underneath tonic",
+          "url": "https://docs.rs/h2/latest/h2/",
+          "kind": "docs"
+        },
+        {
+          "title": "hyper repository",
+          "url": "https://github.com/hyperium/hyper",
+          "kind": "repo"
+        }
       ]
     },
     {
@@ -2138,45 +2011,7 @@ export default {
             "Shed: 503 with Retry-After, logged and counted as a metric",
             "Per-tenant limits: one noisy customer must not consume the shared budget"
           ],
-          "code": [
-            "use std::sync::Arc;",
-            "use hyper::{Response, StatusCode};",
-            "use tokio::sync::Semaphore;",
-            "",
-            "pub struct Limiter {",
-            "    permits: Arc<Semaphore>,",
-            "}",
-            "",
-            "impl Limiter {",
-            "    pub fn new(max_concurrent: usize) -> Self {",
-            "        Self { permits: Arc::new(Semaphore::new(max_concurrent)) }",
-            "    }",
-            "",
-            "    pub async fn run<F, T>(&self, work: F) -> Result<T, Response<&'static str>>",
-            "    where",
-            "        F: std::future::Future<Output = T>,",
-            "    {",
-            "        // try_acquire, not acquire: waiting is what turns overload into latency.",
-            "        let permit = match self.permits.clone().try_acquire_owned() {",
-            "            Ok(permit) => permit,",
-            "            Err(_) => {",
-            "                return Err(Response::builder()",
-            "                    .status(StatusCode::SERVICE_UNAVAILABLE)",
-            "                    .header(\"retry-after\", \"1\")",
-            "                    .body(\"overloaded\")",
-            "                    .expect(\"static response builds\"));",
-            "            }",
-            "        };",
-            "",
-            "        let result = work.await;",
-            "        drop(permit);",
-            "        Ok(result)",
-            "    }",
-            "}",
-            "",
-            "// If a short wait is acceptable, acquire with a timeout shorter than the",
-            "// request deadline: tokio::time::timeout(Duration::from_millis(20), sem.acquire())"
-          ].join("\n"),
+          "code": "use std::sync::Arc;\nuse hyper::{Response, StatusCode};\nuse tokio::sync::Semaphore;\n\npub struct Limiter {\n    permits: Arc<Semaphore>,\n}\n\nimpl Limiter {\n    pub fn new(max_concurrent: usize) -> Self {\n        Self { permits: Arc::new(Semaphore::new(max_concurrent)) }\n    }\n\n    pub async fn run<F, T>(&self, work: F) -> Result<T, Response<&'static str>>\n    where\n        F: std::future::Future<Output = T>,\n    {\n        // try_acquire, not acquire: waiting is what turns overload into latency.\n        let permit = match self.permits.clone().try_acquire_owned() {\n            Ok(permit) => permit,\n            Err(_) => {\n                return Err(Response::builder()\n                    .status(StatusCode::SERVICE_UNAVAILABLE)\n                    .header(\"retry-after\", \"1\")\n                    .body(\"overloaded\")\n                    .expect(\"static response builds\"));\n            }\n        };\n\n        let result = work.await;\n        drop(permit);\n        Ok(result)\n    }\n}\n\n// If a short wait is acceptable, acquire with a timeout shorter than the\n// request deadline: tokio::time::timeout(Duration::from_millis(20), sem.acquire())",
           "tip": "Make the queue shorter than the deadline. A request that waits 900 ms in a queue for an 800 ms budget has already failed; rejecting it in 2 ms frees the slot."
         },
         {
@@ -2196,7 +2031,12 @@ export default {
       "questions": [
         {
           "q": "A service handles 2,000 requests per second at 50 ms each. What concurrency does Little's law predict?",
-          "options": ["100", "40", "1,000", "2,000"],
+          "options": [
+            "100",
+            "40",
+            "1,000",
+            "2,000"
+          ],
           "answer": 0,
           "explain": "L = arrival rate x time in system = 2,000 x 0.05 s = 100 concurrent requests. That is the concurrency budget to size limits against."
         },
@@ -2235,16 +2075,39 @@ export default {
         "Per-tenant limits prevent one customer from consuming the shared budget.",
         "Request bodies are streamed, so a handler never buffers more than it can process."
       ],
-      "crates": ["tower", "tokio", "metrics"],
+      "crates": [
+        "tower",
+        "tokio",
+        "metrics"
+      ],
       "github": [
-        { "name": "tower", "url": "https://github.com/tower-rs/tower" }
+        {
+          "name": "tower",
+          "url": "https://github.com/tower-rs/tower"
+        }
       ],
       "pitfall": "A request queue with no deadline: during an incident every request waits for a slot it will never get, memory climbs with the queue, and the process dies while CPU sits at 10%.",
       "resources": [
-        { "title": "tower::limit: concurrency and rate limiting layers", "url": "https://docs.rs/tower/latest/tower/limit/", "kind": "docs" },
-        { "title": "tower::load_shed: fail fast when the service is not ready", "url": "https://docs.rs/tower/latest/tower/load_shed/struct.LoadShedLayer.html", "kind": "docs" },
-        { "title": "MDN: 503 Service Unavailable and Retry-After", "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Status/503", "kind": "docs" },
-        { "title": "tower repository", "url": "https://github.com/tower-rs/tower", "kind": "repo" }
+        {
+          "title": "tower::limit: concurrency and rate limiting layers",
+          "url": "https://docs.rs/tower/latest/tower/limit/",
+          "kind": "docs"
+        },
+        {
+          "title": "tower::load_shed: fail fast when the service is not ready",
+          "url": "https://docs.rs/tower/latest/tower/load_shed/struct.LoadShedLayer.html",
+          "kind": "docs"
+        },
+        {
+          "title": "MDN: 503 Service Unavailable and Retry-After",
+          "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Status/503",
+          "kind": "docs"
+        },
+        {
+          "title": "tower repository",
+          "url": "https://github.com/tower-rs/tower",
+          "kind": "repo"
+        }
       ]
     },
     {
@@ -2282,42 +2145,7 @@ export default {
             "tokio-util's `Decoder` and `Encoder` traits separate framing from I/O, and `Framed` combines them so the read loop is a stream of messages. That matters for testability: you can unit-test a decoder against byte slices with no socket, including the nasty cases where a frame header is split across two reads.",
             "The built-in `LengthDelimitedCodec` already implements the common case, including `max_frame_length`, so use it unless the wire format is genuinely not a u32-prefixed frame. When you do write your own, keep the `max_frame_length` equivalent as a constant with a comment explaining the largest legitimate message, because the next person will need to change it."
           ],
-          "code": [
-            "use bytes::{Buf, BytesMut};",
-            "use tokio_util::codec::Decoder;",
-            "",
-            "const MAX_FRAME: usize = 1 << 20; // 1 MiB: largest legitimate message",
-            "",
-            "pub struct LengthPrefixed;",
-            "",
-            "impl Decoder for LengthPrefixed {",
-            "    type Item = BytesMut;",
-            "    type Error = std::io::Error;",
-            "",
-            "    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {",
-            "        if src.len() < 4 {",
-            "            src.reserve(4 - src.len());",
-            "            return Ok(None); // need more bytes, not an error",
-            "        }",
-            "",
-            "        let len = u32::from_be_bytes([src[0], src[1], src[2], src[3]]) as usize;",
-            "        if len > MAX_FRAME {",
-            "            return Err(std::io::Error::new(",
-            "                std::io::ErrorKind::InvalidData,",
-            "                format!(\"frame of {len} bytes exceeds {MAX_FRAME}\"),",
-            "            ));",
-            "        }",
-            "",
-            "        if src.len() < 4 + len {",
-            "            src.reserve(4 + len - src.len()); // validated, so safe to reserve",
-            "            return Ok(None);",
-            "        }",
-            "",
-            "        src.advance(4);",
-            "        Ok(Some(src.split_to(len)))",
-            "    }",
-            "}"
-          ].join("\n"),
+          "code": "use bytes::{Buf, BytesMut};\nuse tokio_util::codec::Decoder;\n\nconst MAX_FRAME: usize = 1 << 20; // 1 MiB: largest legitimate message\n\npub struct LengthPrefixed;\n\nimpl Decoder for LengthPrefixed {\n    type Item = BytesMut;\n    type Error = std::io::Error;\n\n    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {\n        if src.len() < 4 {\n            src.reserve(4 - src.len());\n            return Ok(None); // need more bytes, not an error\n        }\n\n        let len = u32::from_be_bytes([src[0], src[1], src[2], src[3]]) as usize;\n        if len > MAX_FRAME {\n            return Err(std::io::Error::new(\n                std::io::ErrorKind::InvalidData,\n                format!(\"frame of {len} bytes exceeds {MAX_FRAME}\"),\n            ));\n        }\n\n        if src.len() < 4 + len {\n            src.reserve(4 + len - src.len()); // validated, so safe to reserve\n            return Ok(None);\n        }\n\n        src.advance(4);\n        Ok(Some(src.split_to(len)))\n    }\n}",
           "tip": "Test the decoder with a frame header split across two reads; that case is where most hand-written decoders fail."
         }
       ],
@@ -2374,16 +2202,38 @@ export default {
         "Decoder tests cover split headers, coalesced frames, and oversized lengths.",
         "Buffer reuse is measured; per-message allocation shows up as CPU in profiles."
       ],
-      "crates": ["tokio-util", "bytes", "tokio"],
+      "crates": [
+        "tokio-util",
+        "bytes",
+        "tokio"
+      ],
       "github": [
-        { "name": "tokio", "url": "https://github.com/tokio-rs/tokio" },
-        { "name": "bytes", "url": "https://github.com/tokio-rs/bytes" }
+        {
+          "name": "tokio",
+          "url": "https://github.com/tokio-rs/tokio"
+        },
+        {
+          "name": "bytes",
+          "url": "https://github.com/tokio-rs/bytes"
+        }
       ],
       "pitfall": "Trusting the length field: a client sends 0xFFFFFFFF, the decoder calls with_capacity for 4 GiB, and the process is killed by the OOM reaper before the frame ever arrives.",
       "resources": [
-        { "title": "tokio_util::codec: Decoder, Encoder, Framed", "url": "https://docs.rs/tokio-util/latest/tokio_util/codec/", "kind": "docs" },
-        { "title": "bytes::BytesMut: split_to and zero-copy slices", "url": "https://docs.rs/bytes/latest/bytes/", "kind": "docs" },
-        { "title": "tokio repository (tokio-util lives here)", "url": "https://github.com/tokio-rs/tokio", "kind": "repo" }
+        {
+          "title": "tokio_util::codec: Decoder, Encoder, Framed",
+          "url": "https://docs.rs/tokio-util/latest/tokio_util/codec/",
+          "kind": "docs"
+        },
+        {
+          "title": "bytes::BytesMut: split_to and zero-copy slices",
+          "url": "https://docs.rs/bytes/latest/bytes/",
+          "kind": "docs"
+        },
+        {
+          "title": "tokio repository (tokio-util lives here)",
+          "url": "https://github.com/tokio-rs/tokio",
+          "kind": "repo"
+        }
       ]
     },
     {
@@ -2414,68 +2264,7 @@ export default {
             "HTTP/1.1: pool size approximates concurrency; HTTP/2: 1-2 connections per host plus stream limits",
             "Maximum connection age in minutes, so DNS and deploys cannot pin a route forever"
           ],
-          "code": [
-            "use std::sync::Arc;",
-            "use std::time::{Duration, Instant};",
-            "use tokio::sync::{mpsc, Mutex, Semaphore};",
-            "",
-            "pub struct Idle<C> { conn: C, since: Instant }",
-            "pub struct Pool<C> {",
-            "    idle_tx: mpsc::UnboundedSender<Idle<C>>,",
-            "    idle_rx: Mutex<mpsc::UnboundedReceiver<Idle<C>>>,",
-            "    permits: Arc<Semaphore>,",
-            "    idle_timeout: Duration,",
-            "}",
-            "",
-            "impl<C: Send + 'static> Pool<C> {",
-            "    pub fn new(max: usize, idle_timeout: Duration) -> Arc<Self> {",
-            "        let (idle_tx, idle_rx) = mpsc::unbounded_channel();",
-            "        Arc::new(Self {",
-            "            idle_tx,",
-            "            idle_rx: Mutex::new(idle_rx),",
-            "            permits: Arc::new(Semaphore::new(max)),",
-            "            idle_timeout,",
-            "        })",
-            "    }",
-            "",
-            "    pub async fn checkout<F, Fut>(self: &Arc<Self>, connect: F) -> Result<Guard<C>, PoolError>",
-            "    where F: FnOnce() -> Fut, Fut: std::future::Future<Output = std::io::Result<C>>",
-            "    {",
-            "        // Bounded checkout: waiting for a slot must not outlive the request.",
-            "        let permit = tokio::time::timeout(",
-            "            Duration::from_millis(250),",
-            "            self.permits.clone().acquire_owned(),",
-            "        )",
-            "        .await",
-            "        .map_err(|_| PoolError::Exhausted)?",
-            "        .map_err(|_| PoolError::Closed)?;",
-            "        let mut idle = self.idle_rx.lock().await;",
-            "        while let Some(entry) = idle.try_recv().ok() {",
-            "            if entry.since.elapsed() < self.idle_timeout {",
-            "                drop(idle);",
-            "                return Ok(Guard { pool: Arc::clone(self), conn: Some(entry.conn), _permit: permit });",
-            "            }",
-            "        }",
-            "        drop(idle);",
-            "",
-            "        let conn = connect().await.map_err(PoolError::Connect)?;",
-            "        Ok(Guard { pool: Arc::clone(self), conn: Some(conn), _permit: permit })",
-            "    }",
-            "}",
-            "",
-            "pub struct Guard<C> { pool: Arc<Pool<C>>, conn: Option<C>, _permit: tokio::sync::OwnedSemaphorePermit }",
-            "",
-            "impl<C> Drop for Guard<C> {",
-            "    fn drop(&mut self) {",
-            "        // Drop cannot await; hand the connection back through a channel.",
-            "        if let Some(conn) = self.conn.take() {",
-            "            let _ = self.pool.idle_tx.send(Idle { conn, since: Instant::now() });",
-            "        }",
-            "    }",
-            "}",
-            "",
-            "#[derive(Debug)] pub enum PoolError { Exhausted, Closed, Connect(std::io::Error) }"
-          ].join("\n"),
+          "code": "use std::sync::Arc;\nuse std::time::{Duration, Instant};\nuse tokio::sync::{mpsc, Mutex, Semaphore};\n\npub struct Idle<C> { conn: C, since: Instant }\npub struct Pool<C> {\n    idle_tx: mpsc::UnboundedSender<Idle<C>>,\n    idle_rx: Mutex<mpsc::UnboundedReceiver<Idle<C>>>,\n    permits: Arc<Semaphore>,\n    idle_timeout: Duration,\n}\n\nimpl<C: Send + 'static> Pool<C> {\n    pub fn new(max: usize, idle_timeout: Duration) -> Arc<Self> {\n        let (idle_tx, idle_rx) = mpsc::unbounded_channel();\n        Arc::new(Self {\n            idle_tx,\n            idle_rx: Mutex::new(idle_rx),\n            permits: Arc::new(Semaphore::new(max)),\n            idle_timeout,\n        })\n    }\n\n    pub async fn checkout<F, Fut>(self: &Arc<Self>, connect: F) -> Result<Guard<C>, PoolError>\n    where F: FnOnce() -> Fut, Fut: std::future::Future<Output = std::io::Result<C>>\n    {\n        // Bounded checkout: waiting for a slot must not outlive the request.\n        let permit = tokio::time::timeout(\n            Duration::from_millis(250),\n            self.permits.clone().acquire_owned(),\n        )\n        .await\n        .map_err(|_| PoolError::Exhausted)?\n        .map_err(|_| PoolError::Closed)?;\n        let mut idle = self.idle_rx.lock().await;\n        while let Some(entry) = idle.try_recv().ok() {\n            if entry.since.elapsed() < self.idle_timeout {\n                drop(idle);\n                return Ok(Guard { pool: Arc::clone(self), conn: Some(entry.conn), _permit: permit });\n            }\n        }\n        drop(idle);\n\n        let conn = connect().await.map_err(PoolError::Connect)?;\n        Ok(Guard { pool: Arc::clone(self), conn: Some(conn), _permit: permit })\n    }\n}\n\npub struct Guard<C> { pool: Arc<Pool<C>>, conn: Option<C>, _permit: tokio::sync::OwnedSemaphorePermit }\n\nimpl<C> Drop for Guard<C> {\n    fn drop(&mut self) {\n        // Drop cannot await; hand the connection back through a channel.\n        if let Some(conn) = self.conn.take() {\n            let _ = self.pool.idle_tx.send(Idle { conn, since: Instant::now() });\n        }\n    }\n}\n\n#[derive(Debug)] pub enum PoolError { Exhausted, Closed, Connect(std::io::Error) }",
           "tip": "Track checkout wait time as a metric. A rising p99 wait with stable latency means the pool is too small; a wait of exactly the timeout means it is winning."
         },
         {
@@ -2495,7 +2284,12 @@ export default {
       "questions": [
         {
           "q": "A route does 1,500 rps with a 40 ms upstream call. What is the concurrency, and roughly the HTTP/1.1 pool size?",
-          "options": ["60 concurrent, pool around 60-80", "37 concurrent, pool of 40", "1,500 concurrent, pool of 1,500", "4 concurrent, pool of 4"],
+          "options": [
+            "60 concurrent, pool around 60-80",
+            "37 concurrent, pool of 40",
+            "1,500 concurrent, pool of 1,500",
+            "4 concurrent, pool of 4"
+          ],
           "answer": 0,
           "explain": "Little's law: 1,500 x 0.040 = 60 concurrent requests. The pool must cover that concurrency plus a little headroom for reconnects."
         },
@@ -2534,17 +2328,43 @@ export default {
         "Stale-connection retries are limited to requests that were never written.",
         "Per-host pools are bounded so a many-host fan-out cannot exhaust descriptors."
       ],
-      "crates": ["tokio", "hyper-util", "metrics"],
+      "crates": [
+        "tokio",
+        "hyper-util",
+        "metrics"
+      ],
       "github": [
-        { "name": "hyper-util", "url": "https://github.com/hyperium/hyper-util" },
-        { "name": "tokio", "url": "https://github.com/tokio-rs/tokio" }
+        {
+          "name": "hyper-util",
+          "url": "https://github.com/hyperium/hyper-util"
+        },
+        {
+          "name": "tokio",
+          "url": "https://github.com/tokio-rs/tokio"
+        }
       ],
       "pitfall": "A pool with no checkout timeout and no maximum age: under saturation callers wait for a connection they cannot get, and connections created an hour ago keep pointing at backends that no longer exist.",
       "resources": [
-        { "title": "hyper-util client pooling options", "url": "https://docs.rs/hyper-util/latest/hyper_util/client/legacy/struct.Builder.html", "kind": "docs" },
-        { "title": "tokio::sync::Semaphore for bounded checkout", "url": "https://docs.rs/tokio/latest/tokio/sync/struct.Semaphore.html", "kind": "docs" },
-        { "title": "Sharding and HTTP/2 connection reuse revisited", "url": "https://arxiv.org/abs/2110.14239", "kind": "paper" },
-        { "title": "hyper-util repository", "url": "https://github.com/hyperium/hyper-util", "kind": "repo" }
+        {
+          "title": "hyper-util client pooling options",
+          "url": "https://docs.rs/hyper-util/latest/hyper_util/client/legacy/struct.Builder.html",
+          "kind": "docs"
+        },
+        {
+          "title": "tokio::sync::Semaphore for bounded checkout",
+          "url": "https://docs.rs/tokio/latest/tokio/sync/struct.Semaphore.html",
+          "kind": "docs"
+        },
+        {
+          "title": "Sharding and HTTP/2 connection reuse revisited",
+          "url": "https://arxiv.org/abs/2110.14239",
+          "kind": "paper"
+        },
+        {
+          "title": "hyper-util repository",
+          "url": "https://github.com/hyperium/hyper-util",
+          "kind": "repo"
+        }
       ]
     },
     {
@@ -2575,41 +2395,7 @@ export default {
             "`max-age` is freshness for any cache; `s-maxage` overrides it for shared caches; `stale-while-revalidate` lets a cache serve a stale copy while it refreshes in the background; `stale-if-error` lets it serve stale when the origin is failing. Those two directives are how a CDN keeps serving during an origin incident, and they are the difference between a blip and an outage.",
             "Revalidation is cheap when you support it. Send a strong `ETag` with the response and handle `If-None-Match` by returning 304 with no body; the client keeps its copy and you save an entire payload. `Last-Modified` with `If-Modified-Since` is the weaker fallback with one-second resolution. A 304 still counts as a request, so it saves bandwidth far more than it saves origin CPU."
           ],
-          "code": [
-            "use bytes::Bytes;",
-            "use http_body_util::Full;",
-            "use hyper::body::Incoming;",
-            "use hyper::header::{HeaderValue, CACHE_CONTROL, ETAG, IF_NONE_MATCH};",
-            "use hyper::{Request, Response, StatusCode};",
-            "",
-            "const BODY: &[u8] = br#\"{\"plan\":\"pro\"}\"#;",
-            "const VERSION: &str = \"v42\";",
-            "",
-            "pub fn render(req: &Request<Incoming>) -> Response<Full<Bytes>> {",
-            "    let etag = format!(\"\\\"{VERSION}\\\"\");",
-            "    let fresh = req",
-            "        .headers()",
-            "        .get(IF_NONE_MATCH)",
-            "        .and_then(|value| value.to_str().ok())",
-            "        .is_some_and(|value| value.split(',').any(|tag| tag.trim() == etag));",
-            "",
-            "    let mut response = if fresh {",
-            "        Response::new(Full::new(Bytes::new()))",
-            "    } else {",
-            "        Response::new(Full::new(Bytes::from_static(BODY)))",
-            "    };",
-            "",
-            "    *response.status_mut() = if fresh { StatusCode::NOT_MODIFIED } else { StatusCode::OK };",
-            "    response.headers_mut().insert(ETAG, etag.parse().expect(\"valid etag\"));",
-            "    response.headers_mut().insert(",
-            "        CACHE_CONTROL,",
-            "        HeaderValue::from_static(",
-            "            \"public, max-age=0, s-maxage=60, stale-while-revalidate=300, stale-if-error=600\",",
-            "        ),",
-            "    );",
-            "    response",
-            "}"
-          ].join("\n"),
+          "code": "use bytes::Bytes;\nuse http_body_util::Full;\nuse hyper::body::Incoming;\nuse hyper::header::{HeaderValue, CACHE_CONTROL, ETAG, IF_NONE_MATCH};\nuse hyper::{Request, Response, StatusCode};\n\nconst BODY: &[u8] = br#\"{\"plan\":\"pro\"}\"#;\nconst VERSION: &str = \"v42\";\n\npub fn render(req: &Request<Incoming>) -> Response<Full<Bytes>> {\n    let etag = format!(\"\\\"{VERSION}\\\"\");\n    let fresh = req\n        .headers()\n        .get(IF_NONE_MATCH)\n        .and_then(|value| value.to_str().ok())\n        .is_some_and(|value| value.split(',').any(|tag| tag.trim() == etag));\n\n    let mut response = if fresh {\n        Response::new(Full::new(Bytes::new()))\n    } else {\n        Response::new(Full::new(Bytes::from_static(BODY)))\n    };\n\n    *response.status_mut() = if fresh { StatusCode::NOT_MODIFIED } else { StatusCode::OK };\n    response.headers_mut().insert(ETAG, etag.parse().expect(\"valid etag\"));\n    response.headers_mut().insert(\n        CACHE_CONTROL,\n        HeaderValue::from_static(\n            \"public, max-age=0, s-maxage=60, stale-while-revalidate=300, stale-if-error=600\",\n        ),\n    );\n    response\n}",
           "tip": "`max-age=0, s-maxage=60` is a deliberate pattern: browsers revalidate every time, the CDN serves for a minute."
         },
         {
@@ -2673,16 +2459,39 @@ export default {
         "ETag and If-None-Match are implemented for cacheable JSON and static assets.",
         "Hit ratio, origin offload, and stale-serve counts are charted per route."
       ],
-      "crates": ["hyper", "http-body-util", "bytes"],
+      "crates": [
+        "hyper",
+        "http-body-util",
+        "bytes"
+      ],
       "github": [
-        { "name": "hyper", "url": "https://github.com/hyperium/hyper" }
+        {
+          "name": "hyper",
+          "url": "https://github.com/hyperium/hyper"
+        }
       ],
       "pitfall": "Caching a response that depends on a header you did not put in Vary: one user's locale, currency, or feature flag is served to everyone else until the entry expires, and purge is too slow to help.",
       "resources": [
-        { "title": "MDN: HTTP caching, freshness and revalidation", "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Caching", "kind": "docs" },
-        { "title": "MDN: Cache-Control directives", "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cache-Control", "kind": "docs" },
-        { "title": "MDN: conditional requests and 304", "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Conditional_requests", "kind": "docs" },
-        { "title": "Multi-tier caching analysis in CDN-based video systems", "url": "https://arxiv.org/abs/1902.04067", "kind": "paper" }
+        {
+          "title": "MDN: HTTP caching, freshness and revalidation",
+          "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Caching",
+          "kind": "docs"
+        },
+        {
+          "title": "MDN: Cache-Control directives",
+          "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cache-Control",
+          "kind": "docs"
+        },
+        {
+          "title": "MDN: conditional requests and 304",
+          "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Conditional_requests",
+          "kind": "docs"
+        },
+        {
+          "title": "Multi-tier caching analysis in CDN-based video systems",
+          "url": "https://arxiv.org/abs/1902.04067",
+          "kind": "paper"
+        }
       ]
     },
     {
@@ -2714,23 +2523,7 @@ export default {
             "`time_namelookup` is DNS. `time_connect - time_namelookup` is the TCP handshake. `time_appconnect - time_connect` is TLS. `time_starttransfer - time_appconnect` is the server's think time plus one round trip, and `time_total - time_starttransfer` is the body transfer. If DNS dominates, the resolver is slow or the name has too many CNAME hops; if connect dominates, suspect the path or SYN retransmits.",
             "A large ttfb gap with fast DNS and connect points at the application or a queue in front of it. A large transfer gap with a small body points at a shrinking congestion window or a proxy buffering. Comparing the same request from inside the cluster and from outside separates a network problem from a service problem in one measurement, and it costs one command."
           ],
-          "code": [
-            "HOST=api.example.com",
-            "",
-            "# One request, broken down by phase. Compare from inside and outside the cluster.",
-            "curl -sS -o /dev/null -w 'dns=%{time_namelookup} connect=%{time_connect} tls=%{time_appconnect} ttfb=%{time_starttransfer} total=%{time_total} http=%{http_version} ip=%{remote_ip}\\n' \\",
-            "  \"https://$HOST/health\"",
-            "",
-            "# Is the TLS layer or ALPN the problem?",
-            "openssl s_client -connect \"$HOST:443\" -servername \"$HOST\" -alpn h2 < /dev/null 2>/dev/null | head -20",
-            "",
-            "# Sockets: who is holding ports, who is retransmitting?",
-            "ss -s",
-            "ss -tin dst \"$HOST\" | grep -E 'cwnd|retrans|rtt'",
-            "",
-            "# Per-hop loss, with the caveat that routers deprioritise ICMP.",
-            "mtr --report --report-cycles 20 \"$HOST\""
-          ].join("\n"),
+          "code": "HOST=api.example.com\n\n# One request, broken down by phase. Compare from inside and outside the cluster.\ncurl -sS -o /dev/null -w 'dns=%{time_namelookup} connect=%{time_connect} tls=%{time_appconnect} ttfb=%{time_starttransfer} total=%{time_total} http=%{http_version} ip=%{remote_ip}\\n' \\\n  \"https://$HOST/health\"\n\n# Is the TLS layer or ALPN the problem?\nopenssl s_client -connect \"$HOST:443\" -servername \"$HOST\" -alpn h2 < /dev/null 2>/dev/null | head -20\n\n# Sockets: who is holding ports, who is retransmitting?\nss -s\nss -tin dst \"$HOST\" | grep -E 'cwnd|retrans|rtt'\n\n# Per-hop loss, with the caveat that routers deprioritise ICMP.\nmtr --report --report-cycles 20 \"$HOST\"",
           "tip": "`ttfb - appconnect` includes one RTT plus server time; subtract a known-good baseline before blaming the handler."
         },
         {
@@ -2739,35 +2532,7 @@ export default {
             "Tools see one request. Metrics see the population. Record a histogram of request duration labelled by route, a counter of upstream errors labelled by status class, and a gauge of in-flight requests. Add connection-level counters: new connections, reused connections, checkout waits, and resets. Those four numbers explain most incidents that look like application bugs.",
             "On the tracing side, a span per request with the peer address and the route, and a child span per upstream call, gives you the breakdown without a packet capture. Enable protocol logs selectively: `RUST_LOG=hyper=debug,h2=debug` is invaluable on one instance and ruinous on a fleet, so make it a per-instance toggle rather than a deployment setting."
           ],
-          "code": [
-            "use std::time::Instant;",
-            "use metrics::{counter, histogram};",
-            "use tracing::Instrument;",
-            "",
-            "pub async fn handle(route: &'static str, peer: std::net::SocketAddr) -> Result<(), String> {",
-            "    let started = Instant::now();",
-            "    let span = tracing::info_span!(\"http.request\", route, peer = %peer);",
-            "",
-            "    let result = do_work().instrument(span).await;",
-            "",
-            "    histogram!(\"http_request_duration_seconds\", \"route\" => route)",
-            "        .record(started.elapsed().as_secs_f64());",
-            "",
-            "    match &result {",
-            "        Ok(()) => {}",
-            "        Err(reason) => {",
-            "            counter!(\"http_request_errors_total\", \"route\" => route).increment(1);",
-            "            tracing::warn!(%reason, \"request failed\");",
-            "        }",
-            "    }",
-            "",
-            "    result",
-            "}",
-            "",
-            "async fn do_work() -> Result<(), String> {",
-            "    Ok(())",
-            "}"
-          ].join("\n"),
+          "code": "use std::time::Instant;\nuse metrics::{counter, histogram};\nuse tracing::Instrument;\n\npub async fn handle(route: &'static str, peer: std::net::SocketAddr) -> Result<(), String> {\n    let started = Instant::now();\n    let span = tracing::info_span!(\"http.request\", route, peer = %peer);\n\n    let result = do_work().instrument(span).await;\n\n    histogram!(\"http_request_duration_seconds\", \"route\" => route)\n        .record(started.elapsed().as_secs_f64());\n\n    match &result {\n        Ok(()) => {}\n        Err(reason) => {\n            counter!(\"http_request_errors_total\", \"route\" => route).increment(1);\n            tracing::warn!(%reason, \"request failed\");\n        }\n    }\n\n    result\n}\n\nasync fn do_work() -> Result<(), String> {\n    Ok(())\n}",
           "tip": "Export connection reuse and checkout wait time; a service with stable latency and falling reuse is one deploy away from a handshake storm."
         }
       ],
@@ -2791,7 +2556,12 @@ export default {
         },
         {
           "q": "Which command summarises sockets, including those in TIME_WAIT?",
-          "options": ["ss -s", "dig +trace", "mtr --report", "openssl s_client"],
+          "options": [
+            "ss -s",
+            "dig +trace",
+            "mtr --report",
+            "openssl s_client"
+          ],
           "answer": 0,
           "explain": "ss -s prints a summary by socket state. ss -tan state time-wait lists the individual sockets if you need the detail."
         },
@@ -2819,17 +2589,44 @@ export default {
         "Protocol debug logging is a per-instance toggle with an expiry, never a fleet-wide default.",
         "A runbook names the first three commands for a latency report and who owns DNS, TLS, and the edge."
       ],
-      "crates": ["metrics", "tracing", "tokio"],
+      "crates": [
+        "metrics",
+        "tracing",
+        "tokio"
+      ],
       "github": [
-        { "name": "metrics", "url": "https://github.com/metrics-rs/metrics" }
+        {
+          "name": "metrics",
+          "url": "https://github.com/metrics-rs/metrics"
+        }
       ],
       "pitfall": "Running tcpdump on a busy host as the first step: the capture is enormous, the buffer drops the packets you needed, and the real answer was in `ss -tin` or a duration histogram all along.",
       "resources": [
-        { "title": "metrics crate: counters, gauges, histograms", "url": "https://docs.rs/metrics/latest/metrics/", "kind": "docs" },
-        { "title": "metrics::histogram macro", "url": "https://docs.rs/metrics/latest/metrics/macro.histogram.html", "kind": "docs" },
-        { "title": "MDN: HTTP messages and raw request inspection", "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Messages", "kind": "docs" },
-        { "title": "metrics-rs repository", "url": "https://github.com/metrics-rs/metrics", "kind": "repo" },
-        { "title": "fasterthanlime: Rust internals, profiling and debugging deep dives", "url": "https://www.youtube.com/@fasterthanlime", "kind": "video" }
+        {
+          "title": "metrics crate: counters, gauges, histograms",
+          "url": "https://docs.rs/metrics/latest/metrics/",
+          "kind": "docs"
+        },
+        {
+          "title": "metrics::histogram macro",
+          "url": "https://docs.rs/metrics/latest/metrics/macro.histogram.html",
+          "kind": "docs"
+        },
+        {
+          "title": "MDN: HTTP messages and raw request inspection",
+          "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Messages",
+          "kind": "docs"
+        },
+        {
+          "title": "metrics-rs repository",
+          "url": "https://github.com/metrics-rs/metrics",
+          "kind": "repo"
+        },
+        {
+          "title": "fasterthanlime: Rust internals, profiling and debugging deep dives",
+          "url": "https://www.youtube.com/@fasterthanlime",
+          "kind": "video"
+        }
       ]
     }
   ]
