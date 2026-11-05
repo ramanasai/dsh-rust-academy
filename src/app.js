@@ -29,6 +29,7 @@ window.__ModuleLoader__.load({
     const PLAYGROUND_LOCAL = '/rust-academy';
     const PLAYGROUND_DEFAULT = 'fn main() {\n    println!("Hello from the Rust Playground!");\n}\n';
     let playgroundAbort = null;
+    let activeEditor = null;
 
     // ------------------------------------------------------------------ i18n
 
@@ -70,6 +71,18 @@ window.__ModuleLoader__.load({
       'playground.networkError': 'Could not reach the Rust Playground. Check your connection or open play.rust-lang.org directly.',
       'playground.empty': 'Write code and press Run (or Ctrl/Cmd+Enter) to execute it in the sandbox.',
       'playground.hint': 'Ctrl/Cmd+Enter to run',
+      'playground.output': 'Output',
+      'playground.problems': 'Problems',
+      'playground.testsTab': 'Tests',
+      'playground.noProblems': 'No compiler warnings or errors.',
+      'playground.noTests': 'Run with the Tests checkbox to see results.',
+      'playground.copyOutput': 'Copy output',
+      'playground.clearOutput': 'Clear output',
+      'playground.fontSize': 'Font',
+      'playground.wrap': 'Wrap',
+      'playground.localMode': 'Local',
+      'playground.remoteMode': 'Remote',
+      'playground.shortcuts': 'Ctrl/Cmd+Enter run · Ctrl/Cmd+S format · Ctrl/Cmd+/ comment · Tab indent',
       'playground.local': 'Local (beta)',
       'playground.localNote': 'Local: runs on this machine. File writes are sandboxed; filesystem reads and network are not.',
       'playground.localOff': 'Remote playground (play.rust-lang.org)',
@@ -906,10 +919,15 @@ window.__ModuleLoader__.load({
       const [selection, setSelection] = useState({ start: 0, end: 0 });
       const [localAvailable, setLocalAvailable] = useState(false);
       const [useLocal, setUseLocal] = useState(false);
+      const [scroll, setScroll] = useState({ top: 0, left: 0 });
+      const [outputTab, setOutputTab] = useState('output');
+      const [fontSize, setFontSize] = useState(typeof saved.fontSize === 'number' ? saved.fontSize : 12);
+      const [wrap, setWrap] = useState(!!saved.wrap);
+      const [cursor, setCursor] = useState({ line: 1, col: 1 });
 
       useEffect(() => {
-        writeJson(PLAYGROUND_KEY, { code, edition, tests });
-      }, [code, edition, tests]);
+        writeJson(PLAYGROUND_KEY, { code, edition, tests, fontSize, wrap });
+      }, [code, edition, tests, fontSize, wrap]);
 
       useEffect(() => () => {
         if (playgroundAbort) playgroundAbort.abort();
@@ -919,7 +937,7 @@ window.__ModuleLoader__.load({
         let live = true;
         fetch(PLAYGROUND_LOCAL + '/status', { credentials: 'same-origin' })
           .then((response) => {
-            if (!live || !response.ok) return;
+            if (!live || !response.ok) return undefined;
             return response.json().then((payload) => {
               if (!live || !payload || payload.enabled !== true) return;
               setLocalAvailable(true);
@@ -930,15 +948,104 @@ window.__ModuleLoader__.load({
         return () => { live = false; };
       }, []);
 
+      const lines = code.split('\n');
       const suggestions = PLAYGROUND_SNIPPETS.concat(
         lesson && lesson.crates ? lesson.crates.map((name) => name + '::') : []
       );
 
+      function focusAt(position) {
+        requestAnimationFrame(() => {
+          if (!activeEditor) return;
+          activeEditor.focus();
+          activeEditor.setSelectionRange(position, position);
+          setSelection({ start: position, end: position });
+        });
+      }
+
+      function replaceRange(start, end, text) {
+        const next = code.slice(0, start) + text + code.slice(end);
+        setCode(next);
+        setNotice('');
+        focusAt(start + text.length);
+      }
+
+      function handleKeyDown(event) {
+        const mod = event.metaKey || event.ctrlKey;
+        if (mod && event.key === 'Enter') {
+          event.preventDefault();
+          execute('run');
+          return;
+        }
+        if (mod && event.key.toLowerCase() === 's') {
+          event.preventDefault();
+          formatCode();
+          return;
+        }
+        if (mod && event.key === '/') {
+          event.preventDefault();
+          toggleComment();
+          return;
+        }
+        if (event.key === 'Tab') {
+          event.preventDefault();
+          if (event.shiftKey) {
+            const position = selection.start;
+            const lineStart = code.lastIndexOf('\n', position - 1) + 1;
+            const prefix = code.slice(lineStart, position);
+            const spaces = prefix.length - prefix.trimStart().length;
+            if (spaces > 0) replaceRange(lineStart, lineStart + Math.min(4, spaces), '');
+          } else {
+            replaceRange(selection.start, selection.end, '    ');
+          }
+          return;
+        }
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          const position = selection.start;
+          const lineStart = code.lastIndexOf('\n', position - 1) + 1;
+          const currentLine = code.slice(lineStart, position);
+          const indent = (currentLine.match(/^\s*/) || [''])[0];
+          const extra = /[{([]\s*$/.test(currentLine) ? '    ' : '';
+          replaceRange(selection.start, selection.end, '\n' + indent + extra);
+        }
+      }
+
+      function toggleComment() {
+        const start = code.lastIndexOf('\n', selection.start - 1) + 1;
+        let end = code.indexOf('\n', selection.end);
+        if (end === -1) end = code.length;
+        const block = code.slice(start, end);
+        const rows = block.split('\n');
+        const allCommented = rows.every((row) => row.trim() === '' || row.trimStart().startsWith('//'));
+        const next = rows.map((row) => {
+          if (row.trim() === '') return row;
+          return allCommented
+            ? row.replace(/^(\s*)\/\/ ?/, '$1')
+            : row.replace(/^(\s*)/, '$1// ');
+        }).join('\n');
+        setCode(code.slice(0, start) + next + code.slice(end));
+        setNotice('');
+        focusAt(start);
+      }
+
+      function trackCursor() {
+        if (!activeEditor) return;
+        const position = activeEditor.selectionStart;
+        const before = code.slice(0, position);
+        const line = (before.match(/\n/g) || []).length + 1;
+        const col = position - (before.lastIndexOf('\n') + 1) + 1;
+        setCursor({ line, col });
+        setSelection({ start: position, end: activeEditor.selectionEnd });
+      }
+
       function finish(payload) {
         const value = payload && typeof payload === 'object' ? payload : { success: false, stdout: '', stderr: 'Unexpected response' };
+        const nextDiagnostics = parseDiagnostics(value.stderr);
+        const nextTests = parseTestSummary(value.stdout);
         setResult(value);
-        setDiagnostics(parseDiagnostics(value.stderr));
-        setTestSummary(parseTestSummary(value.stdout));
+        setDiagnostics(nextDiagnostics);
+        setTestSummary(nextTests);
+        setOutputTab(nextDiagnostics.length ? 'problems' : (nextTests ? 'tests' : 'output'));
         setRunning(false);
       }
 
@@ -968,7 +1075,6 @@ window.__ModuleLoader__.load({
           tests: nextKind === 'run' ? tests : false,
           code,
         };
-        // Local runner handles compile+run only; tests/lint/format stay remote.
         if (localAvailable && useLocal && nextKind === 'run' && !tests) {
           runLocal(body, controller, started);
           return;
@@ -1006,14 +1112,16 @@ window.__ModuleLoader__.load({
           })
           .then((payload) => {
             if (payload && payload.error) throw new Error(payload.error);
-            setResult({
+            const mapped = {
               success: payload.success === true,
               stdout: payload.stdout || '',
               stderr: payload.stderr || '',
               exitDetail: (payload.phase || 'run') + (payload.timedOut ? ' · timed out' : ' · exit ' + String(payload.exitCode)),
-            });
-            setDiagnostics(parseDiagnostics(payload.stderr));
+            };
+            setResult(mapped);
+            setDiagnostics(parseDiagnostics(mapped.stderr));
             setTestSummary(null);
+            setOutputTab(mapped.success ? 'output' : 'problems');
             setElapsed(Date.now() - started);
             setRunning(false);
           })
@@ -1068,16 +1176,22 @@ window.__ModuleLoader__.load({
       function insertSnippet(text) {
         const start = typeof selection.start === 'number' ? selection.start : code.length;
         const end = typeof selection.end === 'number' ? selection.end : code.length;
-        setCode(code.slice(0, start) + text + code.slice(end));
-        setNotice('');
+        replaceRange(start, end, text);
+      }
+
+      function copyOutput() {
+        const payload = result || {};
+        const text = [payload.stdout || '', payload.stderr || ''].filter(Boolean).join('\n');
+        copyText(text).then(() => setNotice(t('toast.copied')), () => setNotice(t('toast.copyFailed')));
       }
 
       const failed = result ? result.success === false : false;
       const statusLabel = kind === 'lint' ? t('playground.lint') : kind === 'format' ? t('playground.format') : t('playground.run');
       const runningLabel = kind === 'lint' ? t('playground.runningLint')
         : kind === 'format' ? t('playground.formatting') : t('playground.running');
+      const problems = diagnostics.length;
 
-      return h('div', { className: 'ra-play' },
+      return h('div', { className: 'ra-ide' },
         lesson && onBackToCourse
           ? h('div', { className: 'ra-play-context' },
               h('button', { type: 'button', className: 'ra-ghost', onClick: onBackToCourse },
@@ -1087,10 +1201,21 @@ window.__ModuleLoader__.load({
               h('span', { className: 'ra-play-context-track' }, lesson.trackTitle)
             )
           : null,
-        h('div', { className: 'ra-play-toolbar' },
+        h('div', { className: 'ra-ide-toolbar' },
           h('div', { className: 'ra-play-heading' },
             h('span', { className: 'ra-play-title' }, t('playground.title')),
-            h('span', { className: 'ra-play-note' }, t('playground.privacy'))
+            h('span', { className: 'ra-play-note' }, t('playground.privacy')),
+            h('span', { className: 'ra-ide-spacer' }),
+            h('label', { className: 'ra-play-field' }, t('playground.fontSize'),
+              h('select', {
+                className: 'ra-select', value: String(fontSize), 'aria-label': t('playground.fontSize'),
+                onChange: (event) => setFontSize(Number(event.target.value)),
+              }, [11, 12, 13, 14, 16].map((size) => h('option', { key: size, value: String(size) }, String(size))))
+            ),
+            h('label', { className: 'ra-play-check' },
+              h('input', { type: 'checkbox', checked: wrap, onChange: (event) => setWrap(event.target.checked) }),
+              t('playground.wrap')
+            )
           ),
           h('div', { className: 'ra-play-controls' },
             h('label', { className: 'ra-play-field' }, t('playground.edition'),
@@ -1106,19 +1231,9 @@ window.__ModuleLoader__.load({
             localAvailable
               ? h('label', { className: 'ra-play-check', title: t('playground.localNote') },
                   h('input', { type: 'checkbox', checked: useLocal, onChange: (event) => setUseLocal(event.target.checked) }),
-                  t('playground.local')
-                )
+                  t('playground.local'))
               : null,
-            h('button', {
-              type: 'button', className: 'ra-primary', disabled: running,
-              title: t('playground.hint'), onClick: () => execute('run'),
-            }, running && kind === 'run' ? t('playground.running') : t('playground.run')),
-            h('button', {
-              type: 'button', className: 'ra-ghost', disabled: running, onClick: () => execute('lint'),
-            }, running && kind === 'lint' ? t('playground.runningLint') : t('playground.lint')),
-            h('button', {
-              type: 'button', className: 'ra-ghost', disabled: running, onClick: formatCode,
-            }, running && kind === 'format' ? t('playground.formatting') : t('playground.format')),
+            h('span', { className: 'ra-ide-spacer' }),
             h('button', {
               type: 'button', className: 'ra-ghost', disabled: !lesson || !lesson.exercise,
               onClick: () => loadExercise('starter'),
@@ -1127,7 +1242,15 @@ window.__ModuleLoader__.load({
               type: 'button', className: 'ra-ghost', disabled: !lesson || !lesson.exercise,
               onClick: () => loadExercise('solution'),
             }, t('playground.loadSolution')),
-            h('button', { type: 'button', className: 'ra-ghost', onClick: () => { setCode(''); setNotice(''); } }, t('playground.clear'))
+            h('button', { type: 'button', className: 'ra-ghost', onClick: () => { setCode(''); setNotice(''); setResult(null); } }, t('playground.clear')),
+            h('button', { type: 'button', className: 'ra-ghost', disabled: running, onClick: formatCode },
+              running && kind === 'format' ? t('playground.formatting') : t('playground.format')),
+            h('button', { type: 'button', className: 'ra-ghost', disabled: running, onClick: () => execute('lint') },
+              running && kind === 'lint' ? t('playground.runningLint') : t('playground.lint')),
+            h('button', {
+              type: 'button', className: 'ra-primary', disabled: running,
+              title: t('playground.hint'), onClick: () => execute('run'),
+            }, running && kind === 'run' ? t('playground.running') : t('playground.run'))
           ),
           localAvailable
             ? h('div', { className: 'ra-play-local-note' }, useLocal ? t('playground.localNote') : t('playground.localOff'))
@@ -1140,69 +1263,108 @@ window.__ModuleLoader__.load({
             }, snippet))
           )
         ),
-        h('div', { className: 'ra-play-body' },
-          h('div', { className: 'ra-play-editor' },
-            h('textarea', {
-              className: 'ra-play-code',
-              value: code,
-              spellCheck: false,
-              'aria-label': t('playground.title'),
-              onChange: (event) => { setCode(event.target.value); setNotice(''); },
-              onSelect: (event) => setSelection({ start: event.target.selectionStart, end: event.target.selectionEnd }),
-              onKeyDown: (event) => {
-                if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-                  event.preventDefault();
-                  execute('run');
-                }
-              },
-            })
+        h('div', { className: 'ra-ide-body' },
+          h('div', { className: 'ra-ide-editor' + (wrap ? ' is-wrap' : '') },
+            h('div', { className: 'ra-ide-gutter', 'aria-hidden': true, style: { fontSize: fontSize + 'px' } },
+              h('div', { className: 'ra-ide-gutter-inner', style: { transform: 'translateY(' + (-scroll.top) + 'px)' } },
+                lines.map((line, index) => h('div', { className: 'ra-ide-line', key: index }, index + 1))
+              )
+            ),
+            h('div', { className: 'ra-ide-code' },
+              h('pre', {
+                className: 'ra-ide-highlight',
+                'aria-hidden': true,
+                style: {
+                  fontSize: fontSize + 'px',
+                  transform: 'translate(' + (-scroll.left) + 'px, ' + (-scroll.top) + 'px)',
+                },
+              }, highlightRust(code + (code.endsWith('\n') ? ' ' : ''))),
+              h('textarea', {
+                className: 'ra-ide-input',
+                value: code,
+                spellCheck: false,
+                'aria-label': t('playground.title'),
+                style: { fontSize: fontSize + 'px' },
+                ref: (node) => { activeEditor = node; },
+                onChange: (event) => { setCode(event.target.value); setNotice(''); },
+                onScroll: (event) => setScroll({ top: event.target.scrollTop, left: event.target.scrollLeft }),
+                onSelect: trackCursor,
+                onKeyUp: trackCursor,
+                onClick: trackCursor,
+                onKeyDown: handleKeyDown,
+              })
+            )
           ),
-          h('div', { className: 'ra-play-output' },
-            error ? h('div', { className: 'ra-play-error' }, error) : null,
-            notice ? h('div', { className: 'ra-play-notice' }, notice) : null,
-            result
-              ? h('div', { className: 'ra-play-result' },
-                  h('div', { className: 'ra-play-status' },
-                    h('span', { className: 'ra-badge ' + (failed ? 'ra-badge-bad' : 'ra-badge-ok') },
-                      failed ? t('playground.failure') : t('playground.success')),
-                    h('span', { className: 'ra-play-meta' },
-                      statusLabel + ' · ' + (result.exitDetail || result.exit_detail || '') + (elapsed ? ' · ' + elapsed + ' ms' : ''))
-                  ),
-                  testSummary
-                    ? h('div', { className: 'ra-play-tests ' + (testSummary.ok ? 'is-ok' : 'is-bad') },
-                        (testSummary.ok ? t('playground.testsOk') : t('playground.testsFailed')) +
-                        ' · ' + t('playground.testSummary', { passed: testSummary.passed, failed: testSummary.failed }))
-                    : null,
-                  diagnostics.length
-                    ? h('div', { className: 'ra-play-section' },
-                        h('h4', null, t('playground.diagnostics')),
-                        h('ul', { className: 'ra-play-diagnostics' },
-                          diagnostics.slice(0, 12).map((item, index) => h('li', { key: index, className: 'ra-diag ra-diag-' + item.severity },
-                            h('div', { className: 'ra-diag-head' },
-                              h('span', { className: 'ra-diag-sev' }, item.severity + (item.code ? ' [' + item.code + ']' : '')),
-                              h('span', { className: 'ra-diag-msg' }, item.message)
-                            ),
-                            item.location ? h('div', { className: 'ra-diag-loc' }, item.location) : null,
-                            item.helps.length
-                              ? h('ul', { className: 'ra-diag-helps' },
-                                  item.helps.map((help, helpIndex) => h('li', { key: helpIndex }, help)))
-                              : null
-                          ))
-                        )
+          h('div', { className: 'ra-ide-output' },
+            h('div', { className: 'ra-ide-tabs' },
+              h('button', {
+                type: 'button', className: 'ra-ide-tab' + (outputTab === 'output' ? ' is-active' : ''),
+                onClick: () => setOutputTab('output'),
+              }, t('playground.output')),
+              h('button', {
+                type: 'button', className: 'ra-ide-tab' + (outputTab === 'problems' ? ' is-active' : ''),
+                onClick: () => setOutputTab('problems'),
+              }, t('playground.problems'), problems ? h('span', { className: 'ra-ide-tab-badge' }, String(problems)) : null),
+              h('button', {
+                type: 'button', className: 'ra-ide-tab' + (outputTab === 'tests' ? ' is-active' : ''),
+                onClick: () => setOutputTab('tests'),
+              }, t('playground.testsTab'), testSummary ? h('span', { className: 'ra-ide-tab-badge' }, testSummary.ok ? 'ok' : 'fail') : null),
+              h('span', { className: 'ra-ide-tabs-spacer' }),
+              h('button', { type: 'button', className: 'ra-ghost ra-cheat-copy', onClick: copyOutput }, t('playground.copyOutput')),
+              h('button', {
+                type: 'button', className: 'ra-ghost ra-cheat-copy',
+                onClick: () => { setResult(null); setDiagnostics([]); setTestSummary(null); setError(''); setNotice(''); },
+              }, t('playground.clearOutput'))
+            ),
+            h('div', { className: 'ra-ide-output-body' },
+              error ? h('div', { className: 'ra-play-error' }, error) : null,
+              notice ? h('div', { className: 'ra-play-notice' }, notice) : null,
+              outputTab === 'problems'
+                ? (problems
+                    ? h('ul', { className: 'ra-play-diagnostics' },
+                        diagnostics.map((item, index) => h('li', { key: index, className: 'ra-diag ra-diag-' + item.severity },
+                          h('div', { className: 'ra-diag-head' },
+                            h('span', { className: 'ra-diag-sev' }, item.severity + (item.code ? ' [' + item.code + ']' : '')),
+                            h('span', { className: 'ra-diag-msg' }, item.message)
+                          ),
+                          item.location ? h('div', { className: 'ra-diag-loc' }, item.location) : null,
+                          item.helps.length
+                            ? h('ul', { className: 'ra-diag-helps' },
+                                item.helps.map((help, helpIndex) => h('li', { key: helpIndex }, help)))
+                            : null
+                        ))
                       )
-                    : null,
-                  h('div', { className: 'ra-play-section' },
-                    h('h4', null, t('playground.stdout')),
-                    h('pre', { className: 'ra-play-pre' }, result.stdout || '')
-                  ),
-                  result.stderr
-                    ? h('div', { className: 'ra-play-section' },
-                        h('h4', null, t('playground.stderr')),
-                        h('pre', { className: 'ra-play-pre ra-play-stderr' }, result.stderr))
-                    : null
-                )
-              : h('div', { className: 'ra-play-empty' }, running ? runningLabel : t('playground.empty'))
+                    : h('div', { className: 'ra-play-empty' }, t('playground.noProblems')))
+                : outputTab === 'tests'
+                  ? (testSummary
+                      ? h('div', { className: 'ra-play-tests ' + (testSummary.ok ? 'is-ok' : 'is-bad') },
+                          (testSummary.ok ? t('playground.testsOk') : t('playground.testsFailed')) +
+                          ' · ' + t('playground.testSummary', { passed: testSummary.passed, failed: testSummary.failed }))
+                      : h('div', { className: 'ra-play-empty' }, t('playground.noTests')))
+                  : (result
+                      ? h('div', null,
+                          h('div', { className: 'ra-play-section' },
+                            h('h4', null, t('playground.stdout')),
+                            h('pre', { className: 'ra-play-pre' }, result.stdout || '')
+                          ),
+                          result.stderr
+                            ? h('div', { className: 'ra-play-section' },
+                                h('h4', null, t('playground.stderr')),
+                                h('pre', { className: 'ra-play-pre ra-play-stderr' }, result.stderr))
+                            : null
+                        )
+                      : h('div', { className: 'ra-play-empty' }, running ? runningLabel : t('playground.empty')))
+            )
           )
+        ),
+        h('div', { className: 'ra-ide-status' },
+          h('span', { className: 'ra-ide-mode' }, localAvailable && useLocal ? t('playground.localMode') : t('playground.remoteMode')),
+          h('span', null, statusLabel + (result ? ' · ' + (result.exitDetail || result.exit_detail || (failed ? t('playground.failure') : t('playground.success'))) : '')),
+          elapsed ? h('span', null, String(elapsed) + ' ms') : null,
+          h('span', { className: 'ra-ide-spacer' }),
+          h('span', null, 'Ln ' + cursor.line + ', Col ' + cursor.col),
+          h('span', null, lines.length + ' lines · ' + code.length + ' chars'),
+          h('span', { className: 'ra-ide-hint' }, t('playground.shortcuts'))
         )
       );
     }
@@ -1720,9 +1882,38 @@ window.__ModuleLoader__.load({
 .ra-diag-helps{margin:3px 0 0;padding-left:16px;font-size:11.5px;color:var(--dsw-alias-label-secondary);}
 @media (max-width:900px){
   .ra-play-body{flex-direction:column;}
+  .ra-ide-body{flex-direction:column;}
+  .ra-ide-editor{min-height:220px;}
+  .ra-ide-output{min-height:180px;}
   .ra-play-code{min-height:180px;}
   .ra-play-output{min-height:160px;}
 }
+.ra-ide{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:10px;padding:16px 20px 12px;}
+.ra-ide-toolbar{display:flex;flex-direction:column;gap:8px;}
+.ra-ide-spacer{flex:1 1 auto;}
+.ra-ide-body{flex:1 1 auto;min-height:0;display:flex;gap:10px;}
+.ra-ide-editor{flex:1.1 1 0;min-width:0;display:flex;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-layer-1);overflow:hidden;}
+.ra-ide-gutter{flex:0 0 54px;overflow:hidden;padding:12px 8px 12px 0;text-align:right;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;line-height:1.6;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-2);border-right:1px solid var(--dsw-alias-border-l1);user-select:none;}
+.ra-ide-gutter-inner{will-change:transform;}
+.ra-ide-line{height:1.6em;font-variant-numeric:tabular-nums;}
+.ra-ide-code{position:relative;flex:1 1 auto;min-width:0;}
+.ra-ide-highlight{position:absolute;inset:0;margin:0;padding:12px 14px;white-space:pre;overflow:hidden;pointer-events:none;tab-size:4;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;line-height:1.6;color:var(--dsw-alias-label-primary);will-change:transform;}
+.ra-ide-input{position:absolute;inset:0;width:100%;height:100%;margin:0;padding:12px 14px;border:0;outline:none;resize:none;background:transparent;color:transparent;caret-color:var(--dsw-alias-label-primary);white-space:pre;overflow:auto;tab-size:4;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;line-height:1.6;}
+.ra-ide-input::selection{background:color-mix(in srgb, var(--dsw-alias-brand-primary) 28%, transparent);}
+.ra-ide-input:focus-visible{outline:none;}
+.ra-ide-editor.is-wrap .ra-ide-highlight,.ra-ide-editor.is-wrap .ra-ide-input{white-space:pre-wrap;word-break:break-word;}
+.ra-ide-output{flex:1 1 0;min-width:0;display:flex;flex-direction:column;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-layer-1);overflow:hidden;}
+.ra-ide-tabs{display:flex;align-items:center;gap:4px;padding:6px 8px;border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);}
+.ra-ide-tab{appearance:none;border:0;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11.5px;padding:4px 9px;border-radius:6px;cursor:pointer;}
+.ra-ide-tab:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1);}
+.ra-ide-tab.is-active{background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font-weight:600;}
+.ra-ide-tab:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px;}
+.ra-ide-tab-badge{margin-left:5px;font-size:9.5px;font-weight:600;color:var(--dsw-alias-state-warn-primary);}
+.ra-ide-tabs-spacer{flex:1 1 auto;}
+.ra-ide-output-body{flex:1 1 auto;min-height:0;overflow:auto;padding:10px 12px;}
+.ra-ide-status{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:10.5px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;padding:0 2px;}
+.ra-ide-mode{font-weight:600;color:var(--dsw-alias-brand-primary);}
+.ra-ide-hint{margin-left:auto;font-size:10px;color:var(--dsw-alias-label-secondary);}
 .ra-toast{position:fixed;left:50%;bottom:30px;transform:translateX(-50%);z-index:80;background:var(--dsw-alias-bg-overlay);color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l2);border-radius:999px;padding:7px 15px;font-size:12px;}
 @media (max-width:900px){
   .ra-nav{width:238px;flex-basis:238px;}
