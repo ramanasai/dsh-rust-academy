@@ -24,8 +24,8 @@ verified links to docs, GitHub repos, papers and conference talks.
 - **12 reference blueprints.** How the pieces fit together: request flow, components,
   production checklist and related chapters.
 - **23-group cheatsheet.** 130 copy-ready snippets for the whole stack.
-- **Progress + search.** Per-track and overall completion, plus full-text search over
-  chapters, crates and patterns.
+- **Progress, search and track jump.** Per-track and overall completion, full-text
+  search over chapters/crates/patterns, and a jump-to-track selector.
 
 ## Tracks
 

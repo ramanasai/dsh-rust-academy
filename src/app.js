@@ -74,6 +74,8 @@ window.__ModuleLoader__.load({
       'bp.lessons': 'Related lessons',
       'bp.resources': 'References',
       'track.done': '{done}/{total} done',
+      'track.all': 'All tracks',
+      'track.select': 'Jump to a track',
       'lesson.questions': 'Check yourself',
       'questions.score': '{correct}/{total} correct',
       'shortcut.prev': 'Previous chapter (←)',
@@ -439,7 +441,7 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function LessonNav({ selectedId, done, query, onSelect }) {
+    function LessonNav({ selectedId, done, query, trackFilter, onSelect }) {
       const searching = String(query || '').trim().length > 0;
       if (searching) {
         const results = LESSONS.filter((lesson) => matchesQuery(lesson, query));
@@ -450,8 +452,11 @@ window.__ModuleLoader__.load({
             : results.map((lesson) => lessonRow(lesson, selectedId, done, onSelect, true))
         );
       }
+      const activeTracks = trackFilter && trackFilter !== 'all'
+        ? TRACKS.filter((track) => track.key === trackFilter)
+        : TRACKS;
       return h('nav', { className: 'ra-nav', 'aria-label': t('panel.title') },
-        TRACKS.map((track) => {
+        activeTracks.map((track) => {
           const trackLessons = LESSONS.filter((lesson) => lesson.trackIndex === track.index);
           const completed = trackLessons.filter((lesson) => done[lesson.id]).length;
           return h('div', { className: 'ra-stage', key: track.key },
@@ -646,6 +651,7 @@ window.__ModuleLoader__.load({
       const [toast, setToast] = useState('');
       const [confirmReset, setConfirmReset] = useState(false);
       const [focus, setFocus] = useState(false);
+      const [trackFilter, setTrackFilter] = useState('all');
 
       useEffect(() => {
         if (!toast) return undefined;
@@ -745,11 +751,30 @@ window.__ModuleLoader__.load({
           h(TabButton, { active: tab === 'cheatsheet', onClick: () => setTab('cheatsheet') }, t('tab.cheatsheet')),
           h('div', { className: 'ra-tabs-spacer' }),
           tab === 'course'
-            ? h('input', {
-                className: 'ra-search', type: 'search', value: query,
-                placeholder: t('search.placeholder'), 'aria-label': t('search.placeholder'),
-                onChange: (event) => setQuery(event.target.value),
-              })
+            ? h('div', { className: 'ra-tools' },
+                h('select', {
+                  className: 'ra-select',
+                  value: trackFilter,
+                  'aria-label': t('track.select'),
+                  onChange: (event) => {
+                    const value = event.target.value;
+                    setTrackFilter(value);
+                    if (value !== 'all') {
+                      const first = LESSONS.find((item) => item.trackKey === value);
+                      if (first) selectLesson(first.id);
+                    }
+                  },
+                },
+                  h('option', { value: 'all' }, t('track.all')),
+                  TRACKS.map((track) => h('option', { key: track.key, value: track.key },
+                    track.title + ' · ' + track.lessonCount))
+                ),
+                h('input', {
+                  className: 'ra-search', type: 'search', value: query,
+                  placeholder: t('search.placeholder'), 'aria-label': t('search.placeholder'),
+                  onChange: (event) => setQuery(event.target.value),
+                })
+              )
             : null,
           tab === 'course' && doneCount > 0
             ? h('button', { type: 'button', className: 'ra-ghost', onClick: resetProgress },
@@ -767,7 +792,7 @@ window.__ModuleLoader__.load({
         ),
         tab === 'course'
           ? h('div', { className: 'ra-body' + (focus ? ' is-focus' : '') },
-              h(LessonNav, { selectedId, done, query, onSelect: selectLesson }),
+              h(LessonNav, { selectedId, done, query, trackFilter, onSelect: selectLesson }),
               h(Article, {
                 key: lesson.id,
                 lesson,
@@ -811,6 +836,9 @@ window.__ModuleLoader__.load({
 .ra-tab.is-active{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-weight:600;}
 .ra-tab:focus-visible,.ra-lesson:focus-visible,.ra-ghost:focus-visible,.ra-primary:focus-visible,.ra-search:focus-visible,.ra-link:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px;}
 .ra-tabs-spacer{flex:1 1 auto;}
+.ra-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.ra-select{appearance:none;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;padding:5px 8px;border-radius:8px;max-width:230px;}
+.ra-select:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px;}
 .ra-search{appearance:none;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;padding:5px 10px;border-radius:8px;min-width:220px;}
 .ra-search::placeholder{color:var(--dsw-alias-label-secondary);}
 .ra-body{flex:1 1 auto;min-height:0;display:flex;}
