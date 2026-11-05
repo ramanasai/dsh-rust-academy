@@ -103,6 +103,12 @@ window.__ModuleLoader__.load({
       'exercise.solution': 'Solution',
       'cheatsheet.subtitle': 'Copy-ready syntax and configuration for production Rust services.',
       'blueprints.subtitle': 'Reference architectures: how the pieces fit together, and what to verify before shipping.',
+      'blueprints.title': 'Blueprints',
+      'bp.of': 'Blueprint {n} of {total}',
+      'bp.count': '{n} reference architectures',
+      'bp.search': 'Search blueprints…',
+      'bp.noMatch': 'No blueprint matches that search.',
+      'bp.stack': 'Stack',
       'bp.flow': 'Request / data flow',
       'bp.components': 'Components',
       'bp.checklist': 'Production checklist',
@@ -613,58 +619,119 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function BlueprintCard({ blueprint, onOpenLesson }) {
-      return h('article', { className: 'ra-bp' },
-        h('div', { className: 'ra-bp-head' },
-          h('h3', null, blueprint.title),
-          h(LevelChip, { level: blueprint.level || 'industry' })
-        ),
-        h('p', { className: 'ra-bp-summary' }, blueprint.summary),
-        h('div', { className: 'ra-crates' }, (blueprint.stack || []).map((name) => h('span', { className: 'ra-crate', key: name }, name))),
-        h('div', { className: 'ra-bp-block' },
-          h('h4', null, t('bp.flow')),
-          h('ol', null, (blueprint.flow || []).map((step, index) => h('li', { key: index }, step)))
-        ),
-        blueprint.components && blueprint.components.length
-          ? h('div', { className: 'ra-bp-block' },
-              h('h4', null, t('bp.components')),
-              blueprint.components.map((component) => h('div', { className: 'ra-bp-component', key: component.name },
-                h('b', null, component.name),
-                h('span', { className: 'ra-bp-role' }, component.role),
-                (component.crates || []).map((name) => h('span', { className: 'ra-crate', key: name }, name))
+    function BlueprintDetail({ blueprint, index, total, onOpenLesson }) {
+      return h('div', { className: 'ra-bp-detail' },
+        h('div', { className: 'ra-bp-detail-inner' },
+          h('div', { className: 'ra-crumbs' }, t('bp.of', { n: index + 1, total })),
+          h('div', { className: 'ra-bp-title-row' },
+            h('h1', { className: 'ra-bp-title' }, blueprint.title),
+            h(LevelChip, { level: blueprint.level || 'industry' })
+          ),
+          h('p', { className: 'ra-bp-lead' }, blueprint.summary),
+          h('div', { className: 'ra-bp-stack' },
+            h('span', { className: 'ra-bp-label' }, t('bp.stack')),
+            (blueprint.stack || []).map((name) => h('span', { className: 'ra-crate', key: name }, name))
+          ),
+          h('section', { className: 'ra-bp-block' },
+            h('h2', null, t('bp.flow')),
+            h('ol', { className: 'ra-bp-flow' },
+              (blueprint.flow || []).map((step, stepIndex) => h('li', { className: 'ra-bp-step', key: stepIndex },
+                h('span', { className: 'ra-bp-step-num' }, String(stepIndex + 1)),
+                h('span', { className: 'ra-bp-step-text' }, step)
               ))
             )
-          : null,
-        h('div', { className: 'ra-bp-block' },
-          h('h4', null, t('bp.checklist')),
-          h('ul', { className: 'ra-bp-checklist' }, (blueprint.checklist || []).map((item, index) => h('li', { key: index }, item)))
-        ),
-        (blueprint.lessons || []).length
-          ? h('div', { className: 'ra-bp-block' },
-              h('h4', null, t('bp.lessons')),
-              h('div', { className: 'ra-bp-lessons' }, blueprint.lessons.map((id) => {
-                const lesson = LESSON_BY_ID[id];
-                return lesson
-                  ? h('button', { key: id, type: 'button', className: 'ra-ghost', onClick: () => onOpenLesson(id) },
-                      lesson.n + '. ' + lesson.title)
-                  : null;
-              }))
+          ),
+          (blueprint.components || []).length
+            ? h('section', { className: 'ra-bp-block' },
+                h('h2', null, t('bp.components')),
+                h('div', { className: 'ra-bp-components' },
+                  blueprint.components.map((component) => h('div', { className: 'ra-bp-component', key: component.name },
+                    h('div', { className: 'ra-bp-component-head' },
+                      h('b', null, component.name),
+                      (component.crates || []).map((name) => h('span', { className: 'ra-crate', key: name }, name))
+                    ),
+                    h('p', { className: 'ra-bp-component-role' }, component.role)
+                  ))
+                )
+              )
+            : null,
+          h('section', { className: 'ra-bp-block' },
+            h('h2', null, t('bp.checklist')),
+            h('ul', { className: 'ra-bp-checklist' },
+              (blueprint.checklist || []).map((item, itemIndex) => h('li', { key: itemIndex },
+                h('span', { className: 'ra-check' }, '✓'), h('span', null, item)))
             )
-          : null,
-        h(ResourceList, { resources: blueprint.resources, title: t('bp.resources') })
+          ),
+          (blueprint.lessons || []).length
+            ? h('section', { className: 'ra-bp-block' },
+                h('h2', null, t('bp.lessons')),
+                h('div', { className: 'ra-bp-links' },
+                  blueprint.lessons.map((id) => {
+                    const lesson = LESSON_BY_ID[id];
+                    return lesson
+                      ? h('button', { key: id, type: 'button', className: 'ra-bp-link', onClick: () => onOpenLesson(id) },
+                          h('span', { className: 'ra-bp-link-num' }, String(lesson.n)),
+                          h('span', null, lesson.title),
+                          h('span', { className: 'ra-bp-link-track' }, lesson.trackTitle)
+                        )
+                      : null;
+                  })
+                )
+              )
+            : null,
+          h(ResourceList, { resources: blueprint.resources, title: t('bp.resources') })
+        )
       );
     }
 
     function Blueprints({ onOpenLesson }) {
-      return h('div', { className: 'ra-page' },
-        h('div', { className: 'ra-page-inner' },
-          h('div', { className: 'ra-page-head' },
-            h('h1', null, t('tab.blueprints')),
-            h('p', null, t('blueprints.subtitle'))
+      const [selected, setSelected] = useState(() => (BLUEPRINTS[0] ? BLUEPRINTS[0].id : null));
+      const [query, setQuery] = useState('');
+      const terms = String(query || '').toLowerCase().split(/\s+/).filter(Boolean);
+      const matches = BLUEPRINTS.filter((blueprint) => {
+        if (terms.length === 0) return true;
+        const haystack = [blueprint.title, blueprint.summary, (blueprint.stack || []).join(' ')].join(' ').toLowerCase();
+        return terms.every((term) => haystack.includes(term));
+      });
+      const current = BLUEPRINTS.find((blueprint) => blueprint.id === selected) || matches[0] || BLUEPRINTS[0];
+      const currentIndex = current ? BLUEPRINTS.indexOf(current) : 0;
+
+      return h('div', { className: 'ra-bp-shell' },
+        h('aside', { className: 'ra-bp-rail' },
+          h('div', { className: 'ra-bp-rail-head' },
+            h('div', { className: 'ra-bp-rail-title' }, t('blueprints.title')),
+            h('div', { className: 'ra-bp-rail-count' }, t('bp.count', { n: BLUEPRINTS.length }))
           ),
-          h('div', { className: 'ra-bp-grid' },
-            BLUEPRINTS.map((blueprint) => h(BlueprintCard, { key: blueprint.id, blueprint, onOpenLesson })))
-        )
+          h('input', {
+            className: 'ra-search ra-bp-search', type: 'search', value: query,
+            placeholder: t('bp.search'), 'aria-label': t('bp.search'),
+            onChange: (event) => setQuery(event.target.value),
+          }),
+          h('div', { className: 'ra-bp-rail-list' },
+            matches.length === 0
+              ? h('div', { className: 'ra-empty' }, t('bp.noMatch'))
+              : matches.map((blueprint) => {
+                  const index = BLUEPRINTS.indexOf(blueprint);
+                  const active = current && blueprint.id === current.id;
+                  return h('button', {
+                    key: blueprint.id,
+                    type: 'button',
+                    className: 'ra-bp-rail-item' + (active ? ' is-active' : ''),
+                    onClick: () => setSelected(blueprint.id),
+                    'aria-current': active ? 'true' : undefined,
+                  },
+                    h('span', { className: 'ra-bp-rail-num' }, String(index + 1).padStart(2, '0')),
+                    h('span', { className: 'ra-bp-rail-body' },
+                      h('span', { className: 'ra-bp-rail-name' }, blueprint.title),
+                      h('span', { className: 'ra-bp-rail-meta' }, (blueprint.stack || []).slice(0, 4).join(' · '))
+                    )
+                  );
+                })
+          )
+        ),
+        current
+          ? h(BlueprintDetail, { blueprint: current, index: currentIndex, total: BLUEPRINTS.length, onOpenLesson })
+          : h('div', { className: 'ra-empty' }, t('bp.noMatch'))
       );
     }
 
@@ -1302,20 +1369,49 @@ window.__ModuleLoader__.load({
 .ra-page-inner{max-width:1180px;margin:0 auto;}
 .ra-page-head h1{margin:0 0 4px;font-size:20px;font-weight:650;letter-spacing:-.015em;}
 .ra-page-head p{margin:0 0 20px;color:var(--dsw-alias-label-secondary);font-size:12.5px;}
-.ra-bp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:16px;align-items:start;}
-.ra-bp{border:1px solid var(--dsw-alias-border-l1);border-radius:12px;background:var(--dsw-alias-bg-layer-1);padding:16px 18px;}
-.ra-bp-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;}
-.ra-bp-head h3{margin:0;font-size:15px;font-weight:650;letter-spacing:-.01em;}
-.ra-bp-summary{margin:8px 0 10px;font-size:12.5px;color:var(--dsw-alias-label-primary);}
-.ra-bp-block{margin:12px 0;}
-.ra-bp-block h4{margin:0 0 5px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--dsw-alias-label-secondary);}
-.ra-bp-block ol,.ra-bp-block ul{margin:0;padding-left:18px;}
-.ra-bp-block li{font-size:12.5px;margin:3px 0;}
-.ra-bp-component{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px;margin:5px 0;font-size:12.5px;}
-.ra-bp-component b{font-weight:600;}
-.ra-bp-role{color:var(--dsw-alias-label-secondary);}
-.ra-bp-lessons{display:flex;flex-wrap:wrap;gap:6px;}
-.ra-bp-checklist li{color:var(--dsw-alias-label-primary);}
+.ra-bp-shell{flex:1 1 auto;min-height:0;display:flex;}
+.ra-bp-rail{width:302px;flex:0 0 302px;min-height:0;display:flex;flex-direction:column;gap:10px;padding:18px 12px 16px 18px;border-right:1px solid var(--dsw-alias-border-l1);}
+.ra-bp-rail-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;padding:0 4px;}
+.ra-bp-rail-title{font-size:13px;font-weight:650;letter-spacing:-.01em;}
+.ra-bp-rail-count{font-size:10.5px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;}
+.ra-bp-search{min-width:0;width:100%;}
+.ra-bp-rail-list{flex:1 1 auto;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:3px;padding:2px 2px 8px;}
+.ra-bp-rail-item{display:flex;align-items:flex-start;gap:10px;width:100%;appearance:none;border:0;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;text-align:left;padding:9px 10px;border-radius:9px;cursor:pointer;}
+.ra-bp-rail-item:hover{background:var(--dsw-alias-bg-layer-1);}
+.ra-bp-rail-item.is-active{background:var(--dsw-alias-bg-layer-2);box-shadow:inset 2px 0 0 var(--dsw-alias-brand-primary);}
+.ra-bp-rail-item:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:-2px;}
+.ra-bp-rail-num{flex:0 0 auto;font:10.5px/1.9 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;}
+.ra-bp-rail-body{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:2px;}
+.ra-bp-rail-name{font-size:12.5px;line-height:1.35;}
+.ra-bp-rail-meta{font-size:10px;line-height:1.4;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.ra-bp-detail{flex:1 1 auto;min-width:0;min-height:0;overflow-y:auto;padding:26px 34px 72px;}
+.ra-bp-detail-inner{max-width:840px;margin:0 auto;}
+.ra-bp-title-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;}
+.ra-bp-title{margin:0;font-size:24px;line-height:1.2;font-weight:650;letter-spacing:-.02em;}
+.ra-bp-lead{margin:12px 0 16px;font-size:13.5px;line-height:1.6;color:var(--dsw-alias-label-primary);}
+.ra-bp-stack{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:0 0 6px;}
+.ra-bp-label{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--dsw-alias-label-secondary);margin-right:2px;}
+.ra-bp-block{margin:22px 0;padding-top:18px;border-top:1px solid var(--dsw-alias-border-l1);}
+.ra-bp-block h2{margin:0 0 12px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--dsw-alias-label-secondary);}
+.ra-bp-flow{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;}
+.ra-bp-step{position:relative;display:flex;gap:12px;padding:0 0 16px;}
+.ra-bp-step:last-child{padding-bottom:0;}
+.ra-bp-step::before{content:'';position:absolute;left:11px;top:26px;bottom:-2px;width:1px;background:var(--dsw-alias-border-l1);}
+.ra-bp-step:last-child::before{display:none;}
+.ra-bp-step-num{flex:0 0 23px;height:23px;border-radius:999px;display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:600;color:var(--dsw-alias-brand-primary);background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1);z-index:1;}
+.ra-bp-step-text{font-size:13px;line-height:1.55;padding-top:2px;}
+.ra-bp-components{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px;}
+.ra-bp-component{border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-layer-1);padding:10px 12px;}
+.ra-bp-component-head{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px;}
+.ra-bp-component-head b{font-size:12.5px;}
+.ra-bp-component-role{margin:0;font-size:11.5px;line-height:1.5;color:var(--dsw-alias-label-secondary);}
+.ra-bp-checklist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;}
+.ra-bp-checklist li{display:flex;gap:8px;font-size:12.5px;line-height:1.5;}
+.ra-bp-links{display:flex;flex-direction:column;gap:5px;}
+.ra-bp-link{display:flex;align-items:center;gap:10px;width:100%;appearance:none;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12.5px;text-align:left;padding:7px 10px;border-radius:8px;cursor:pointer;}
+.ra-bp-link:hover{background:var(--dsw-alias-bg-layer-2);}
+.ra-bp-link-num{flex:0 0 auto;font:10.5px/1 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;}
+.ra-bp-link-track{margin-left:auto;font-size:10px;color:var(--dsw-alias-label-secondary);white-space:nowrap;}
 .ra-cheat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px;align-items:start;}
 .ra-cheat-group{border:1px solid var(--dsw-alias-border-l1);border-radius:11px;background:var(--dsw-alias-bg-layer-1);overflow:hidden;}
 .ra-cheat-group h2{margin:0;padding:9px 13px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--dsw-alias-label-secondary);border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);}
@@ -1401,7 +1497,9 @@ window.__ModuleLoader__.load({
   .ra-article,.ra-page{padding:20px 18px 56px;}
   .ra-lesson-head{flex-direction:column;gap:8px;}
   .ra-track-project-cols{grid-template-columns:1fr;}
-  .ra-bp-grid{grid-template-columns:1fr;}
+  .ra-bp-shell{flex-direction:column;}
+  .ra-bp-rail{width:auto;flex:0 0 auto;max-height:220px;border-right:0;border-bottom:1px solid var(--dsw-alias-border-l1);padding:12px 14px;}
+  .ra-bp-detail{padding:18px 16px 48px;}
 }
 `;
 

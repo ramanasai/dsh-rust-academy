@@ -21,8 +21,8 @@ verified links to docs, GitHub repos, papers and conference talks.
   YouTube talks where they are genuinely relevant — tagged `Docs`, `Repo`, `Paper`,
   `Video`.
 - **Quickbytes.** Short, paste-ready rules of thumb, commands and gotchas.
-- **12 reference blueprints.** How the pieces fit together: request flow, components,
-  production checklist and related chapters.
+- **12 reference blueprints.** Browse a master–detail view with request flow,
+  component cards, production checklist, related chapters and references.
 - **23-group cheatsheet.** 130 copy-ready snippets for the whole stack.
 - **Playground tab.** Write and run Rust in the official `play.rust-lang.org`
   sandbox (remote execution, needs network; nothing runs on your machine).
