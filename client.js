@@ -106,6 +106,11 @@ window.__ModuleLoader__.load({
       'cheatsheet.count': '{groups} groups · {items} snippets',
       'cheatsheet.empty': 'No snippets match that search.',
       'action.try': 'Try in Playground',
+      'action.run': 'Run',
+      'action.runSolution': 'Run solution',
+      'action.openPlayground': 'Open starter in Playground',
+      'playground.backToChapter': 'Back to chapter',
+      'playground.chapter': 'Chapter',
       'blueprints.subtitle': 'Reference architectures: how the pieces fit together, and what to verify before shipping.',
       'blueprints.title': 'Blueprints',
       'bp.of': 'Blueprint {n} of {total}',
@@ -320,11 +325,19 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function CodeBlock({ code, lang, caption, onCopy }) {
+    function CodeBlock({ code, lang, caption, onCopy, onRun }) {
       return h('div', { className: 'ra-codeblock' },
         h('div', { className: 'ra-codeblock-bar' },
           h('span', { className: 'ra-codeblock-lang' }, caption || lang || 'rust'),
-          h('button', { type: 'button', className: 'ra-ghost ra-copy', onClick: () => onCopy(code), title: t('action.copy') }, t('action.copy'))
+          h('span', { className: 'ra-codeblock-actions' },
+            onRun
+              ? h('button', {
+                  type: 'button', className: 'ra-ghost ra-copy',
+                  onClick: () => onRun(code), title: t('playground.hint'),
+                }, t('action.run'))
+              : null,
+            h('button', { type: 'button', className: 'ra-ghost ra-copy', onClick: () => onCopy(code), title: t('action.copy') }, t('action.copy'))
+          )
         ),
         h('pre', { className: 'ra-pre' }, h('code', null, lang === 'rust' ? highlightRust(code) : code))
       );
@@ -538,7 +551,7 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function Article({ lesson, done, onToggleDone, onCopy, onPrev, onNext, prev, next }) {
+    function Article({ lesson, done, onToggleDone, onCopy, onOpenPlayground, onPrev, onNext, prev, next }) {
       const [hintOpen, setHintOpen] = useState(false);
       const [solutionOpen, setSolutionOpen] = useState(false);
 
@@ -579,14 +592,14 @@ window.__ModuleLoader__.load({
             h('h2', null, section.h),
             section.p.map((paragraph, pIndex) => h('p', { key: pIndex }, paragraph)),
             section.list ? h('ul', null, section.list.map((item, lIndex) => h('li', { key: lIndex }, item))) : null,
-            section.code ? h(CodeBlock, { code: section.code, lang: 'rust', onCopy }) : null,
+            section.code ? h(CodeBlock, { code: section.code, lang: 'rust', onCopy, onRun: () => onOpenPlayground(section.code) }) : null,
             section.tip ? h('div', { className: 'ra-tip' },
               h('span', { className: 'ra-tip-mark' }, '!'), h('span', null, section.tip)) : null
           )),
           h('section', { className: 'ra-exercise' },
             h('div', { className: 'ra-exercise-head' }, h('span', { className: 'ra-badge' }, t('exercise.title'))),
             h('p', { className: 'ra-exercise-prompt' }, exercise.prompt),
-            h(CodeBlock, { code: exercise.starter, lang: 'rust', caption: t('exercise.starter'), onCopy }),
+            h(CodeBlock, { code: exercise.starter, lang: 'rust', caption: t('exercise.starter'), onCopy, onRun: () => onOpenPlayground(exercise.starter) }),
             h('div', { className: 'ra-exercise-actions' },
               h('button', {
                 type: 'button', className: 'ra-ghost',
@@ -596,10 +609,12 @@ window.__ModuleLoader__.load({
                 type: 'button', className: 'ra-ghost',
                 onClick: () => setSolutionOpen((value) => !value), 'aria-expanded': solutionOpen,
               }, solutionOpen ? t('action.hideSolution') : t('action.showSolution')),
+              h('button', { type: 'button', className: 'ra-ghost', onClick: () => onOpenPlayground(exercise.starter) }, t('action.openPlayground')),
+              h('button', { type: 'button', className: 'ra-ghost', onClick: () => onOpenPlayground(exercise.solution) }, t('action.runSolution')),
               h('button', { type: 'button', className: 'ra-ghost', onClick: () => onCopy(tutorPrompt(lesson)) }, t('action.copyPrompt'))
             ),
             hintOpen ? h('p', { className: 'ra-hint' }, exercise.hint) : null,
-            solutionOpen ? h(CodeBlock, { code: exercise.solution, lang: 'rust', caption: t('exercise.solution'), onCopy }) : null
+            solutionOpen ? h(CodeBlock, { code: exercise.solution, lang: 'rust', caption: t('exercise.solution'), onCopy, onRun: () => onOpenPlayground(exercise.solution) }) : null
           ),
           lesson.questions && lesson.questions.length
             ? h(Questions, { key: lesson.id, lessonId: lesson.id, questions: lesson.questions })
@@ -828,7 +843,7 @@ window.__ModuleLoader__.load({
       '.unwrap_or()', '?', 'async fn ', '.await', 'assert_eq!()',
     ];
 
-    function Playground({ lesson, seedCode }) {
+    function Playground({ lesson, seedCode, onBackToCourse }) {
       const saved = readJson(PLAYGROUND_KEY, {});
       const [code, setCode] = useState(() => (typeof seedCode === 'string' && seedCode)
         || (typeof saved.code === 'string' ? saved.code : PLAYGROUND_DEFAULT));
@@ -957,6 +972,15 @@ window.__ModuleLoader__.load({
         : kind === 'format' ? t('playground.formatting') : t('playground.running');
 
       return h('div', { className: 'ra-play' },
+        lesson && onBackToCourse
+          ? h('div', { className: 'ra-play-context' },
+              h('button', { type: 'button', className: 'ra-ghost', onClick: onBackToCourse },
+                '← ' + t('playground.backToChapter')),
+              h('span', { className: 'ra-play-context-title' },
+                t('playground.chapter') + ': ' + lesson.n + '. ' + lesson.title),
+              h('span', { className: 'ra-play-context-track' }, lesson.trackTitle)
+            )
+          : null,
         h('div', { className: 'ra-play-toolbar' },
           h('div', { className: 'ra-play-heading' },
             h('span', { className: 'ra-play-title' }, t('playground.title')),
@@ -1263,6 +1287,7 @@ window.__ModuleLoader__.load({
                 done: !!done[lesson.id],
                 onToggleDone: toggleDone,
                 onCopy: copy,
+                onOpenPlayground: tryInPlayground,
                 onPrev: selectLesson,
                 onNext: selectLesson,
                 prev: previous,
@@ -1273,7 +1298,12 @@ window.__ModuleLoader__.load({
             ? h(Blueprints, { onOpenLesson: openLesson })
             : tab === 'cheatsheet'
               ? h(Cheatsheet, { onCopy: copy, onTry: tryInPlayground })
-              : h(Playground, { key: 'pg-' + playgroundSeed, lesson, seedCode: playgroundCode }),
+              : h(Playground, {
+                  key: 'pg-' + playgroundSeed,
+                  lesson,
+                  seedCode: playgroundCode,
+                  onBackToCourse: () => setTab('course'),
+                }),
         toast ? h('div', { className: 'ra-toast', role: 'status' }, toast) : null
       );
     }
@@ -1383,6 +1413,7 @@ window.__ModuleLoader__.load({
 .ra-track-project li{font-size:12.5px;margin:3px 0;}
 .ra-codeblock{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);border-radius:10px;overflow:hidden;margin:10px 0 14px;}
 .ra-codeblock-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:5px 10px;border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);}
+.ra-codeblock-actions{display:flex;align-items:center;gap:6px;flex:0 0 auto;}
 .ra-codeblock-lang{font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--dsw-alias-label-secondary);}
 .ra-pre{margin:0;padding:12px 14px;overflow-x:auto;font:12px/1.65 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--dsw-alias-label-primary);tab-size:4;}
 .ra-pre code{font:inherit;}
@@ -1491,6 +1522,9 @@ window.__ModuleLoader__.load({
 .ra-quickbytes h3{margin:0 0 8px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--dsw-alias-state-warn-primary);}
 .ra-quickbyte{display:flex;gap:8px;margin:4px 0;font-size:12.5px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--dsw-alias-label-primary);}
 .ra-play{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:12px;padding:18px 22px 24px;}
+.ra-play-context{display:flex;align-items:center;gap:10px;min-width:0;}
+.ra-play-context-title{font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.ra-play-context-track{margin-left:auto;font-size:10.5px;color:var(--dsw-alias-label-secondary);white-space:nowrap;}
 .ra-play-toolbar{display:flex;flex-direction:column;gap:8px;}
 .ra-play-heading{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;}
 .ra-play-title{font-size:15px;font-weight:650;letter-spacing:-.01em;}

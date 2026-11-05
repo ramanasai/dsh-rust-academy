@@ -25,8 +25,12 @@ verified links to docs, GitHub repos, papers and conference talks.
   component cards, production checklist, related chapters and references.
 - **37-group cheatsheet.** 214 copy-ready snippets covering every track — searchable,
   with copy and one-click **Try in Playground**.
-- **Playground tab.** Write and run Rust in the official `play.rust-lang.org`
-  sandbox (remote execution, needs network; nothing runs on your machine).
+- **Playground, wired into the course.** Every code block has a **Run** button and
+  every exercise offers **Open starter in Playground** / **Run solution**, so the
+  current chapter's code lands in the sandbox in one click; the Playground shows
+  the chapter it came from with a back link. Write and run Rust in the official
+  `play.rust-lang.org` sandbox (remote execution, needs network; nothing runs on
+  your machine).
   Includes a **Clippy lint** pass, **rustfmt formatting**, run-as-**tests** with a
   pass/fail summary, parsed **diagnostics** (severity, error code, location,
   compiler suggestions), and an insert-at-cursor **suggestions** palette seeded
