@@ -26,6 +26,7 @@ window.__ModuleLoader__.load({
     const PLAYGROUND_URL = 'https://play.rust-lang.org/execute';
     const PLAYGROUND_CLIPPY = 'https://play.rust-lang.org/clippy';
     const PLAYGROUND_FORMAT = 'https://play.rust-lang.org/format';
+    const PLAYGROUND_LOCAL = '/rust-academy';
     const PLAYGROUND_DEFAULT = 'fn main() {\n    println!("Hello from the Rust Playground!");\n}\n';
     let playgroundAbort = null;
 
@@ -66,6 +67,10 @@ window.__ModuleLoader__.load({
       'playground.networkError': 'Could not reach the Rust Playground. Check your connection or open play.rust-lang.org directly.',
       'playground.empty': 'Write code and press Run (or Ctrl/Cmd+Enter) to execute it in the sandbox.',
       'playground.hint': 'Ctrl/Cmd+Enter to run',
+      'playground.local': 'Local (beta)',
+      'playground.localNote': 'Local: runs on this machine. File writes are sandboxed; filesystem reads and network are not.',
+      'playground.localOff': 'Remote playground (play.rust-lang.org)',
+      'playground.localUnavailable': 'Local runner unavailable — using the remote Playground.',
       'search.placeholder': 'Search lessons, crates, patterns…',
       'search.results': '{n} result(s)',
       'search.empty': 'No lessons match that search.',
@@ -854,6 +859,8 @@ window.__ModuleLoader__.load({
       const [error, setError] = useState('');
       const [elapsed, setElapsed] = useState(0);
       const [selection, setSelection] = useState({ start: 0, end: 0 });
+      const [localAvailable, setLocalAvailable] = useState(false);
+      const [useLocal, setUseLocal] = useState(false);
 
       useEffect(() => {
         writeJson(PLAYGROUND_KEY, { code, edition, tests });
@@ -861,6 +868,21 @@ window.__ModuleLoader__.load({
 
       useEffect(() => () => {
         if (playgroundAbort) playgroundAbort.abort();
+      }, []);
+
+      useEffect(() => {
+        let live = true;
+        fetch(PLAYGROUND_LOCAL + '/status', { credentials: 'same-origin' })
+          .then((response) => {
+            if (!live || !response.ok) return;
+            return response.json().then((payload) => {
+              if (!live || !payload || payload.enabled !== true) return;
+              setLocalAvailable(true);
+              setUseLocal(true);
+            });
+          })
+          .catch(() => {});
+        return () => { live = false; };
       }, []);
 
       const suggestions = PLAYGROUND_SNIPPETS.concat(
@@ -901,7 +923,16 @@ window.__ModuleLoader__.load({
           tests: nextKind === 'run' ? tests : false,
           code,
         };
-        const url = nextKind === 'lint' ? PLAYGROUND_CLIPPY : PLAYGROUND_EXECUTE;
+        // Local runner handles compile+run only; tests/lint/format stay remote.
+        if (localAvailable && useLocal && nextKind === 'run' && !tests) {
+          runLocal(body, controller, started);
+          return;
+        }
+        runRemote(nextKind, body, controller, started);
+      }
+
+      function runRemote(nextKind, body, controller, started) {
+        const url = nextKind === 'lint' ? PLAYGROUND_CLIPPY : PLAYGROUND_URL;
         fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -914,6 +945,40 @@ window.__ModuleLoader__.load({
           })
           .then((payload) => { setElapsed(Date.now() - started); finish(payload); })
           .catch(fail);
+      }
+
+      function runLocal(body, controller, started) {
+        fetch(PLAYGROUND_LOCAL + '/run', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code: body.code, edition: body.edition }),
+          signal: controller.signal,
+        })
+          .then((response) => {
+            if (!response.ok) throw new Error('local HTTP ' + response.status);
+            return response.json();
+          })
+          .then((payload) => {
+            if (payload && payload.error) throw new Error(payload.error);
+            setResult({
+              success: payload.success === true,
+              stdout: payload.stdout || '',
+              stderr: payload.stderr || '',
+              exitDetail: (payload.phase || 'run') + (payload.timedOut ? ' · timed out' : ' · exit ' + String(payload.exitCode)),
+            });
+            setDiagnostics(parseDiagnostics(payload.stderr));
+            setTestSummary(null);
+            setElapsed(Date.now() - started);
+            setRunning(false);
+          })
+          .catch((err) => {
+            if (err && err.name === 'AbortError') { setRunning(false); return; }
+            setLocalAvailable(false);
+            setUseLocal(false);
+            setNotice(t('playground.localUnavailable'));
+            runRemote('run', body, controller, started);
+          });
       }
 
       function formatCode() {
@@ -993,6 +1058,12 @@ window.__ModuleLoader__.load({
               h('input', { type: 'checkbox', checked: tests, onChange: (event) => setTests(event.target.checked) }),
               t('playground.tests')
             ),
+            localAvailable
+              ? h('label', { className: 'ra-play-check', title: t('playground.localNote') },
+                  h('input', { type: 'checkbox', checked: useLocal, onChange: (event) => setUseLocal(event.target.checked) }),
+                  t('playground.local')
+                )
+              : null,
             h('button', {
               type: 'button', className: 'ra-primary', disabled: running,
               title: t('playground.hint'), onClick: () => execute('run'),
@@ -1013,6 +1084,9 @@ window.__ModuleLoader__.load({
             }, t('playground.loadSolution')),
             h('button', { type: 'button', className: 'ra-ghost', onClick: () => { setCode(''); setNotice(''); } }, t('playground.clear'))
           ),
+          localAvailable
+            ? h('div', { className: 'ra-play-local-note' }, useLocal ? t('playground.localNote') : t('playground.localOff'))
+            : null,
           h('div', { className: 'ra-play-suggestions' },
             h('span', { className: 'ra-play-suggestions-label' }, t('playground.suggestions')),
             suggestions.map((snippet) => h('button', {
@@ -1533,6 +1607,7 @@ window.__ModuleLoader__.load({
 .ra-play-code:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px;}
 .ra-play-output{flex:1 1 45%;min-width:0;overflow:auto;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-layer-1);padding:12px 14px;}
 .ra-play-empty{font-size:12.5px;color:var(--dsw-alias-label-secondary);}
+.ra-play-local-note{font-size:10.5px;line-height:1.4;color:var(--dsw-alias-state-warn-primary);}
 .ra-play-error{margin-bottom:10px;padding:9px 11px;border:1px solid var(--dsw-alias-state-error-primary);border-radius:8px;color:var(--dsw-alias-state-error-primary);font-size:12.5px;}
 .ra-play-status{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;}
 .ra-badge-ok{color:var(--dsw-alias-state-success-primary);border:1px solid var(--dsw-alias-state-success-primary);background:var(--dsw-alias-bg-layer-2);}

@@ -35,8 +35,8 @@ verified links to docs, GitHub repos, papers and conference talks.
   every exercise offers **Open starter in Playground** / **Run solution**, so the
   current chapter's code lands in the sandbox in one click; the Playground shows
   the chapter it came from with a back link. Write and run Rust in the official
-  `play.rust-lang.org` sandbox (remote execution, needs network; nothing runs on
-  your machine).
+  `play.rust-lang.org` sandbox (remote execution, needs network), or **locally**
+  in a sandboxed temp workspace when the local runner is enabled.
   Includes a **Clippy lint** pass, **rustfmt formatting**, run-as-**tests** with a
   pass/fail summary, parsed **diagnostics** (severity, error code, location,
   compiler suggestions), and an insert-at-cursor **suggestions** palette seeded
@@ -151,6 +151,30 @@ Latest result: **640/640 chapters clean, 0 broken links, 0 unknown crates**
 (16 ACM/CACM links are bot-blocked to automated fetches but valid in a browser).
 The generated report is `docs/content-audit.md`.
 
+## Local runner (opt-in)
+
+The Host half can compile and run single-file programs on this machine instead of
+sending code to play.rust-lang.org. It is enabled in this profile by the bundle
+patch (`cordis.patch.yml` → `config.enabled: true`); set it to `false` to remove
+the route entirely.
+
+How it runs:
+- `mkdtemp` under the OS temp dir → write `main.rs` → `rustc --edition 2021 -O`
+  → run the binary through `/bin/sh -c 'ulimit -t 5; exec "$0"'` (Linux also sets
+  `ulimit -v`).
+- Every spawn goes through `ctx.subprocess` (SIGTERM → SIGKILL grace ladder,
+  scrubbed env, bounded 64 KiB output + 1 MiB spill) and
+  `ctx.sandbox.confine(..., { mode: 'workspace-write' })`.
+- Wall clock: 15 s compile, 5 s run; at most 2 concurrent runs; body capped at
+  200 KiB; the temp dir is always removed, with a stale-dir sweep at activation.
+- The route (`/rust-academy/status`, `/rust-academy/run`) is authenticated with
+  `ctx.connection.requestRejection` and is **never** exposed as an agent tool.
+
+Security caveat: the sandbox confines **file writes only**. Local programs run as
+your user and can read files you can read and use the network. Keep the local
+toggle off for untrusted code; the Playground falls back to the remote sandbox
+when the local runner is unavailable or fails.
+
 Each chapter supports: `id`, `title`, `minutes`, `level`, `goal`, `sections[]`
 (`h`/`p`/`list`/`code`/`tip`), `exercise` (`prompt`/`starter`/`hint`/`solution`),
 `questions[]` (MCQ with `answer` index and `explain`), `quickbytes[]`,
@@ -163,7 +187,7 @@ Each chapter supports: `id`, `title`, `minutes`, `level`, `goal`, `sections[]`
 | --- | --- |
 | `package.json` | Bundle manifest: patch, Client module, locale and icon exports |
 | `cordis.patch.yml` | Inserts the `rust-academy` row into the profile |
-| `index.js` | Host half (empty `apply`) |
+| `index.js` | Host half: authenticated, sandboxed local Rust runner (opt-in) |
 | `client.js` | Generated Client module: sidebar icon + full panel |
 | `build.mjs` | Assembles `client.js` from `src/app.js` + `src/data/*.mjs` |
 | `src/app.js` | UI template (React without JSX) |

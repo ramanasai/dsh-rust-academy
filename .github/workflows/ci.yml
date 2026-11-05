@@ -46,6 +46,9 @@ jobs:
       - name: Syntax-check src/app.js
         run: node --check src/app.js
 
+      - name: Syntax-check index.js (Host half)
+        run: node --check index.js
+
       - name: Build client.js (includes compiler gate)
         run: node build.mjs
 
